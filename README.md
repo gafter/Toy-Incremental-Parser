@@ -5,6 +5,7 @@ This repository contains a toy recursive-descent parser for the language sketche
 ## Project Layout
 - `ToyIncrementalParser/` – main library with syntax tree types, lexer, and parser.
 - `ToyIncrementalParser.Tests/` – xUnit tests that exercise successful parses, trivia handling, and basic error recovery.
+- `Language.md` – reference document describing the grammar, tokens, trivia rules, and error handling.
 
 ## Trivia Handling Rules
 The lexer attaches whitespace and comments according to these rules:
