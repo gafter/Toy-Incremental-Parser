@@ -126,5 +126,31 @@ public class ParsingTests
             first => Assert.IsType<PrintStatementSyntax>(first),
             second => Assert.IsType<ReturnStatementSyntax>(second));
     }
+
+    [Fact]
+    public void ParseNumericLiteral_ProducesNumericLiteralExpression()
+    {
+        var tree = SyntaxTree.Parse("print 42.5;");
+        Assert.Empty(tree.Diagnostics);
+
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var print = Assert.IsType<PrintStatementSyntax>(statement);
+        var numeric = Assert.IsType<NumericLiteralExpressionSyntax>(print.Expression);
+        Assert.Equal("42.5", numeric.NumberToken.Text);
+        Assert.Equal(42.5, numeric.Value);
+    }
+
+    [Fact]
+    public void ParseStringLiteral_ProducesStringLiteralExpression()
+    {
+        var tree = SyntaxTree.Parse("print \"hi\\n\";");
+        Assert.Empty(tree.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var print = Assert.IsType<PrintStatementSyntax>(statement);
+        var literal = Assert.IsType<StringLiteralExpressionSyntax>(print.Expression);
+        Assert.Equal("\"hi\\n\"", literal.StringToken.Text);
+        Assert.Equal("hi\n", literal.Value);
+    }
 }
 

@@ -21,6 +21,8 @@ public enum NodeKind
     BeginToken,
     EndToken,
     IdentifierToken,
+    NumberToken,
+    StringToken,
     LetToken,
     IfToken,
     ThenToken,
@@ -56,6 +58,8 @@ public enum NodeKind
     ParenthesizedExpression,
     CallExpression,
     IdentifierExpression,
+    NumericLiteralExpression,
+    StringLiteralExpression,
     MissingExpression,
     MissingIdentifier
 }

@@ -81,8 +81,18 @@ factor
 
 term
     : identifier
+    | number_literal
+    | string_literal
     | call_expression
     | '(' expression ')'
+    ;
+
+number_literal
+    : number_token
+    ;
+
+string_literal
+    : string_token
     ;
 
 call_expression
@@ -104,6 +114,9 @@ The lexical layer recognizes these tokens:
 - Keywords: `print`, `return`, `define`, `begin`, `end`, `let`, `if`, `then`, `else`, `fi`, `while`, `do`, `od`
 - Punctuation: `(`, `)`, `=`, `,`, `;`
 - Operators: `+`, `-`, `*`, `/`
+- Literals:
+  - `number_token`: sequence of digits with an optional fractional part (e.g., `0`, `12`, `3.14`)
+  - `string_token`: double-quoted strings with escapes (`\"`, `\\`, `\n`)
 - Identifier tokens: ASCII letters, digits, and `_`, starting with a letter or `_`
 - End-of-file token: synthesized when no more characters remain
 - Error token: recorded for unexpected characters
@@ -124,6 +137,8 @@ These rules let us round-trip source text from the syntax tree.
 The parser inserts *missing* tokens when an expected token is absent. Each missing token produces an error diagnostic anchored at the point where the token should have appeared. Unexpected tokens can be gathered into an `ErrorStatement` node if they cannot be attached elsewhere.
 
 Diagnostics are aggregated up the syntax tree so every node exposes the errors beneath it. This mirrors the approach used by Roslyn’s red nodes and is critical for incremental parsing scenarios.
+
+String literals must terminate on the same line and use the escape sequences above. Unterminated literals and unrecognized escapes produce diagnostics while still constructing a string literal node so downstream analysis can continue.
 
 ## Future Extensions
 
