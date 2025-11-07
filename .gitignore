@@ -7,4 +7,4 @@ obj/
 *.DotSettings
 .DS_Store
 ToyIncrementalParser.Tests/TestResults/
-
+.cursor
