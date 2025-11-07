@@ -24,8 +24,7 @@ statement_list
 statement
     : print_statement
     | return_statement
-    | short_function_definition
-    | long_function_definition
+    | function_definition
     | assignment_statement
     | conditional_statement
     | loop_statement
@@ -39,17 +38,18 @@ return_statement
     : 'return' expression ';'
     ;
 
-short_function_definition
-    : 'define' identifier '(' identifier_list ')' '=' expression ';'
+function_definition
+    : 'define' identifier '(' identifier_list ')' function_body
+    ;
+
+function_body
+    : '=' expression ';'
+    | 'begin' statement_list 'end'
     ;
 
 identifier_list
     :
     | identifier ( ',' identifier )*
-    ;
-
-long_function_definition
-    : 'define' identifier '(' identifier_list ')' 'begin' statement_list 'end'
     ;
 
 assignment_statement
