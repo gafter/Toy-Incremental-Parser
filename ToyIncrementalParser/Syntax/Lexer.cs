@@ -85,6 +85,9 @@ internal sealed class Lexer
         if (char.IsLetter(current) || current == '_')
             return ScanIdentifierOrKeyword(out text);
 
+        if (char.IsDigit(current))
+            return ScanNumberToken(out text);
+
         switch (current)
         {
             case ';':
@@ -123,6 +126,8 @@ internal sealed class Lexer
                 Advance();
                 text = ",";
                 return NodeKind.CommaToken;
+            case '"':
+                return ScanStringToken(out text, diagnostics);
             default:
                 var unexpected = current;
                 Advance();
@@ -155,6 +160,96 @@ internal sealed class Lexer
             return kind;
 
         return NodeKind.IdentifierToken;
+    }
+
+    private NodeKind ScanNumberToken(out string text)
+    {
+        var start = _position;
+        var hasDot = false;
+
+        while (!IsAtEnd)
+        {
+            var ch = Current;
+            if (char.IsDigit(ch))
+            {
+                Advance();
+                continue;
+            }
+
+            if (ch == '.' && !hasDot && char.IsDigit(Peek(1)))
+            {
+                hasDot = true;
+                Advance();
+                continue;
+            }
+
+            break;
+        }
+
+        text = _text[start.._position];
+        return NodeKind.NumberToken;
+    }
+
+    private NodeKind ScanStringToken(out string text, IList<Diagnostic> diagnostics)
+    {
+        var start = _position;
+        Advance(); // opening quote
+
+        var terminated = false;
+
+        while (!IsAtEnd)
+        {
+            var ch = Current;
+            if (ch == '"')
+            {
+                Advance();
+                terminated = true;
+                break;
+            }
+
+            if (ch == '\\')
+            {
+                var escapeStart = _position;
+                Advance(); // consume backslash
+
+                if (IsAtEnd)
+                    break;
+
+                var escape = Current;
+                if (escape is '"' or '\\' or 'n')
+                {
+                    Advance();
+                }
+                else
+                {
+                    Advance();
+                    var diagnostic = new Diagnostic(
+                        DiagnosticSeverity.Error,
+                        $"Unrecognized escape sequence '\\{escape}'.",
+                        new TextSpan(escapeStart, _position - escapeStart));
+                    _diagnostics.Report(diagnostic);
+                    diagnostics.Add(diagnostic);
+                }
+
+                continue;
+            }
+
+            if (ch == '\r' || ch == '\n')
+                break;
+
+            Advance();
+        }
+
+        if (!terminated)
+        {
+            var span = new TextSpan(start, Math.Max(1, _position - start));
+            var diagnostic = new Diagnostic(DiagnosticSeverity.Error, "Unterminated string literal.", span);
+            _diagnostics.Report(diagnostic);
+            diagnostics.Add(diagnostic);
+        }
+
+        text = _text[start.._position];
+        return NodeKind.StringToken;
     }
 
     private IEnumerable<SyntaxTrivia> ScanTrailingTrivia()

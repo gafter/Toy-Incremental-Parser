@@ -281,6 +281,8 @@ public sealed class Parser
         return Current.Kind switch
         {
             NodeKind.IdentifierToken => new IdentifierExpressionSyntax(NextToken()),
+            NodeKind.NumberToken => new NumericLiteralExpressionSyntax(NextToken()),
+            NodeKind.StringToken => new StringLiteralExpressionSyntax(NextToken()),
             NodeKind.OpenParenToken => ParseParenthesizedExpression(),
             _ => new MissingExpressionSyntax(CreateMissingToken(NodeKind.MissingToken))
         };
