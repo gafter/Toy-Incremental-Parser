@@ -76,18 +76,23 @@ public sealed class Parser
         var parameters = ParseIdentifierList(NodeKind.CloseParenToken);
         var closeParen = MatchToken(NodeKind.CloseParenToken);
 
+        FunctionBodySyntax body;
         if (Current.Kind == NodeKind.EqualsToken)
         {
             var equalsToken = MatchToken(NodeKind.EqualsToken);
             var bodyExpression = ParseExpression();
             var semicolon = MatchToken(NodeKind.SemicolonToken);
-            return new ShortFunctionDefinitionSyntax(defineKeyword, identifier, openParen, parameters, closeParen, equalsToken, bodyExpression, semicolon);
+            body = new ExpressionBodySyntax(equalsToken, bodyExpression, semicolon);
+        }
+        else
+        {
+            var beginKeyword = MatchToken(NodeKind.BeginToken);
+            var bodyStatements = ParseStatementList(NodeKind.EndToken);
+            var endKeyword = MatchToken(NodeKind.EndToken);
+            body = new StatementBodySyntax(beginKeyword, bodyStatements, endKeyword);
         }
 
-        var beginKeyword = MatchToken(NodeKind.BeginToken);
-        var bodyStatements = ParseStatementList(NodeKind.EndToken);
-        var endKeyword = MatchToken(NodeKind.EndToken);
-        return new LongFunctionDefinitionSyntax(defineKeyword, identifier, openParen, parameters, closeParen, beginKeyword, bodyStatements, endKeyword);
+        return new FunctionDefinitionSyntax(defineKeyword, identifier, openParen, parameters, closeParen, body);
     }
 
     private StatementSyntax ParsePrintStatement()

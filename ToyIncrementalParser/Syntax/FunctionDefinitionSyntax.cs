@@ -1,16 +1,14 @@
 namespace ToyIncrementalParser.Syntax;
 
-public sealed class LongFunctionDefinitionSyntax : StatementSyntax
+public sealed class FunctionDefinitionSyntax : StatementSyntax
 {
-    public LongFunctionDefinitionSyntax(
+    public FunctionDefinitionSyntax(
         SyntaxToken defineKeyword,
         SyntaxToken identifier,
         SyntaxToken openParenToken,
         IdentifierListSyntax parameters,
         SyntaxToken closeParenToken,
-        SyntaxToken beginKeyword,
-        StatementListSyntax body,
-        SyntaxToken endKeyword)
+        FunctionBodySyntax body)
         : base(new SyntaxNode[]
         {
             defineKeyword,
@@ -18,9 +16,7 @@ public sealed class LongFunctionDefinitionSyntax : StatementSyntax
             openParenToken,
             parameters,
             closeParenToken,
-            beginKeyword,
-            body,
-            endKeyword
+            body
         })
     {
         DefineKeyword = defineKeyword;
@@ -28,9 +24,7 @@ public sealed class LongFunctionDefinitionSyntax : StatementSyntax
         OpenParenToken = openParenToken;
         Parameters = parameters;
         CloseParenToken = closeParenToken;
-        BeginKeyword = beginKeyword;
         Body = body;
-        EndKeyword = endKeyword;
     }
 
     public SyntaxToken DefineKeyword { get; }
@@ -38,10 +32,8 @@ public sealed class LongFunctionDefinitionSyntax : StatementSyntax
     public SyntaxToken OpenParenToken { get; }
     public IdentifierListSyntax Parameters { get; }
     public SyntaxToken CloseParenToken { get; }
-    public SyntaxToken BeginKeyword { get; }
-    public StatementListSyntax Body { get; }
-    public SyntaxToken EndKeyword { get; }
+    public FunctionBodySyntax Body { get; }
 
-    public override NodeKind Kind => NodeKind.LongFunction;
+    public override NodeKind Kind => NodeKind.FunctionDefinition;
 }
 

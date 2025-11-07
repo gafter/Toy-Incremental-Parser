@@ -78,5 +78,53 @@ public class ParsingTests
         var print = Assert.IsType<PrintStatementSyntax>(tree.Root.Statements.Statements[0]);
         Assert.True(print.SemicolonToken.IsMissing);
     }
+
+    [Fact]
+    public void ParseFunctionDefinition_WithExpressionBody()
+    {
+        const string source = "define f(x) = x;";
+        var tree = SyntaxTree.Parse(source);
+        Assert.Empty(tree.Diagnostics);
+
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var function = Assert.IsType<FunctionDefinitionSyntax>(statement);
+        Assert.Equal("define", function.DefineKeyword.Text);
+        Assert.Equal("f", function.Identifier.Text);
+        Assert.Equal("(", function.OpenParenToken.Text);
+        Assert.Single(function.Parameters.Identifiers);
+        var body = Assert.IsType<ExpressionBodySyntax>(function.Body);
+        Assert.Equal("=", body.EqualsToken.Text);
+        Assert.Equal(";", body.SemicolonToken.Text);
+        var identifier = Assert.IsType<IdentifierExpressionSyntax>(body.Expression);
+        Assert.Equal("x", identifier.Identifier.Text);
+    }
+
+    [Fact]
+    public void ParseFunctionDefinition_WithStatementBody()
+    {
+        const string source = """
+        define g(x, y)
+        begin
+            print x;
+            return y;
+        end
+        """;
+
+        var tree = SyntaxTree.Parse(source);
+        Assert.Empty(tree.Diagnostics);
+
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var function = Assert.IsType<FunctionDefinitionSyntax>(statement);
+        Assert.Equal("g", function.Identifier.Text);
+        var parameters = function.Parameters.Identifiers;
+        Assert.Equal(2, parameters.Count);
+        var body = Assert.IsType<StatementBodySyntax>(function.Body);
+        Assert.Equal("begin", body.BeginKeyword.Text);
+        Assert.Equal("end", body.EndKeyword.Text);
+        Assert.Collection(
+            body.Statements.Statements,
+            first => Assert.IsType<PrintStatementSyntax>(first),
+            second => Assert.IsType<ReturnStatementSyntax>(second));
+    }
 }
 
