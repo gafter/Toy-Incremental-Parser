@@ -6,7 +6,7 @@ using ToyIncrementalParser.Text;
 
 namespace ToyIncrementalParser.Syntax;
 
-public abstract class SyntaxNode
+public abstract class SyntaxNode : IEquatable<SyntaxNode>
 {
     private readonly SyntaxNode[] _children;
     private readonly Diagnostic[] _diagnostics;
@@ -71,6 +71,60 @@ public abstract class SyntaxNode
 
     public TextSpan FullSpan => _fullSpan ??= ComputeSpan(includeTrivia: true);
 
+    public bool Equals(SyntaxNode? other)
+    {
+        if (other is null)
+            return false;
+
+        if (ReferenceEquals(this, other))
+            return true;
+
+        if (GetType() != other.GetType())
+            return false;
+
+        if (Kind != other.Kind)
+            return false;
+
+        if (Span != other.Span || FullSpan != other.FullSpan)
+            return false;
+
+        if (!DiagnosticsEqual(Diagnostics, other.Diagnostics))
+            return false;
+
+        if (this is SyntaxToken token)
+        {
+            var otherToken = (SyntaxToken)other;
+            return TokenEquals(token, otherToken);
+        }
+
+        var children = GetChildren().ToArray();
+        var otherChildren = other.GetChildren().ToArray();
+
+        if (children.Length != otherChildren.Length)
+            return false;
+
+        for (var i = 0; i < children.Length; i++)
+        {
+            if (!children[i].Equals(otherChildren[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    public override bool Equals(object? obj) => obj is SyntaxNode node && Equals(node);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Kind);
+        hash.Add(Span.Start);
+        hash.Add(Span.Length);
+        hash.Add(FullSpan.Start);
+        hash.Add(FullSpan.Length);
+        return hash.ToHashCode();
+    }
+
     private TextSpan ComputeSpan(bool includeTrivia)
     {
         var first = GetFirstToken();
@@ -101,6 +155,52 @@ public abstract class SyntaxNode
             bag.AddRange(child.Diagnostics);
 
         return bag.ToArray();
+    }
+
+    private static bool DiagnosticsEqual(IReadOnlyList<Diagnostic> left, IReadOnlyList<Diagnostic> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            var l = left[i];
+            var r = right[i];
+            if (l.Severity != r.Severity || l.Message != r.Message || l.Span != r.Span)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool TokenEquals(SyntaxToken left, SyntaxToken right)
+    {
+        if (left.Text != right.Text || left.IsMissing != right.IsMissing)
+            return false;
+
+        if (!TriviaEquals(left.LeadingTrivia, right.LeadingTrivia))
+            return false;
+
+        if (!TriviaEquals(left.TrailingTrivia, right.TrailingTrivia))
+            return false;
+
+        return true;
+    }
+
+    private static bool TriviaEquals(IReadOnlyList<SyntaxTrivia> left, IReadOnlyList<SyntaxTrivia> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            var l = left[i];
+            var r = right[i];
+            if (l.Kind != r.Kind || l.Text != r.Text || l.Span != r.Span)
+                return false;
+        }
+
+        return true;
     }
 }
 
