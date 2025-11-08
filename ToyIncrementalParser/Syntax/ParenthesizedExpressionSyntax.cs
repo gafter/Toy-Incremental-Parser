@@ -1,18 +1,23 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ParenthesizedExpressionSyntax : ExpressionSyntax
 {
-    public ParenthesizedExpressionSyntax(SyntaxToken openParenToken, ExpressionSyntax expression, SyntaxToken closeParenToken)
-        : base(new SyntaxNode[] { openParenToken, expression, closeParenToken })
+    private SyntaxToken? _openParenToken;
+    private ExpressionSyntax? _expression;
+    private SyntaxToken? _closeParenToken;
+
+    internal ParenthesizedExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenParenthesizedExpressionNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        OpenParenToken = openParenToken;
-        Expression = expression;
-        CloseParenToken = closeParenToken;
     }
 
-    public SyntaxToken OpenParenToken { get; }
-    public ExpressionSyntax Expression { get; }
-    public SyntaxToken CloseParenToken { get; }
+    public SyntaxToken OpenParenToken => GetRequiredToken(ref _openParenToken, 0);
+
+    public ExpressionSyntax Expression => GetRequiredNode(ref _expression, 1);
+
+    public SyntaxToken CloseParenToken => GetRequiredToken(ref _closeParenToken, 2);
 
     public override NodeKind Kind => NodeKind.ParenthesizedExpression;
 }

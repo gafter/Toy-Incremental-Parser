@@ -1,42 +1,39 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ConditionalStatementSyntax : StatementSyntax
 {
-    public ConditionalStatementSyntax(
-        SyntaxToken ifKeyword,
-        ExpressionSyntax condition,
-        SyntaxToken thenKeyword,
-        StatementListSyntax thenStatements,
-        SyntaxToken elseKeyword,
-        StatementListSyntax elseStatements,
-        SyntaxToken fiKeyword)
-        : base(new SyntaxNode[]
-        {
-            ifKeyword,
-            condition,
-            thenKeyword,
-            thenStatements,
-            elseKeyword,
-            elseStatements,
-            fiKeyword
-        })
+    private SyntaxToken? _ifKeyword;
+    private ExpressionSyntax? _condition;
+    private SyntaxToken? _thenKeyword;
+    private StatementListSyntax? _thenStatements;
+    private SyntaxToken? _elseKeyword;
+    private StatementListSyntax? _elseStatements;
+    private SyntaxToken? _fiKeyword;
+
+    internal ConditionalStatementSyntax(
+        SyntaxTree syntaxTree,
+        SyntaxNode? parent,
+        GreenConditionalStatementNode green,
+        int position)
+        : base(syntaxTree, parent, green, position)
     {
-        IfKeyword = ifKeyword;
-        Condition = condition;
-        ThenKeyword = thenKeyword;
-        ThenStatements = thenStatements;
-        ElseKeyword = elseKeyword;
-        ElseStatements = elseStatements;
-        FiKeyword = fiKeyword;
     }
 
-    public SyntaxToken IfKeyword { get; }
-    public ExpressionSyntax Condition { get; }
-    public SyntaxToken ThenKeyword { get; }
-    public StatementListSyntax ThenStatements { get; }
-    public SyntaxToken ElseKeyword { get; }
-    public StatementListSyntax ElseStatements { get; }
-    public SyntaxToken FiKeyword { get; }
+    public SyntaxToken IfKeyword => GetRequiredToken(ref _ifKeyword, 0);
+
+    public ExpressionSyntax Condition => GetRequiredNode(ref _condition, 1);
+
+    public SyntaxToken ThenKeyword => GetRequiredToken(ref _thenKeyword, 2);
+
+    public StatementListSyntax ThenStatements => GetRequiredNode(ref _thenStatements, 3);
+
+    public SyntaxToken ElseKeyword => GetRequiredToken(ref _elseKeyword, 4);
+
+    public StatementListSyntax ElseStatements => GetRequiredNode(ref _elseStatements, 5);
+
+    public SyntaxToken FiKeyword => GetRequiredToken(ref _fiKeyword, 6);
 
     public override NodeKind Kind => NodeKind.ConditionalStatement;
 }

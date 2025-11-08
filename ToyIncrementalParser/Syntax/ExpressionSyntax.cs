@@ -1,12 +1,11 @@
-using System.Collections.Generic;
-using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public abstract class ExpressionSyntax : SyntaxNode
 {
-    protected ExpressionSyntax(IEnumerable<SyntaxNode> children, IEnumerable<Diagnostic>? diagnostics = null)
-        : base(children, diagnostics)
+    internal ExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
     }
 }

@@ -1,16 +1,20 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class UnaryExpressionSyntax : ExpressionSyntax
 {
-    public UnaryExpressionSyntax(SyntaxToken operatorToken, ExpressionSyntax operand)
-        : base(new SyntaxNode[] { operatorToken, operand })
+    private SyntaxToken? _operatorToken;
+    private ExpressionSyntax? _operand;
+
+    internal UnaryExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenUnaryExpressionNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        OperatorToken = operatorToken;
-        Operand = operand;
     }
 
-    public SyntaxToken OperatorToken { get; }
-    public ExpressionSyntax Operand { get; }
+    public SyntaxToken OperatorToken => GetRequiredToken(ref _operatorToken, 0);
+
+    public ExpressionSyntax Operand => GetRequiredNode(ref _operand, 1);
 
     public override NodeKind Kind => NodeKind.UnaryExpression;
 }

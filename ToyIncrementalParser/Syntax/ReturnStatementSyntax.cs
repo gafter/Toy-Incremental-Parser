@@ -1,18 +1,23 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ReturnStatementSyntax : StatementSyntax
 {
-    public ReturnStatementSyntax(SyntaxToken returnKeyword, ExpressionSyntax expression, SyntaxToken semicolonToken)
-        : base(new SyntaxNode[] { returnKeyword, expression, semicolonToken })
+    private SyntaxToken? _returnKeyword;
+    private ExpressionSyntax? _expression;
+    private SyntaxToken? _semicolonToken;
+
+    internal ReturnStatementSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenReturnStatementNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        ReturnKeyword = returnKeyword;
-        Expression = expression;
-        SemicolonToken = semicolonToken;
     }
 
-    public SyntaxToken ReturnKeyword { get; }
-    public ExpressionSyntax Expression { get; }
-    public SyntaxToken SemicolonToken { get; }
+    public SyntaxToken ReturnKeyword => GetRequiredToken(ref _returnKeyword, 0);
+
+    public ExpressionSyntax Expression => GetRequiredNode(ref _expression, 1);
+
+    public SyntaxToken SemicolonToken => GetRequiredToken(ref _semicolonToken, 2);
 
     public override NodeKind Kind => NodeKind.ReturnStatement;
 }

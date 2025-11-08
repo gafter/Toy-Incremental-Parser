@@ -2,28 +2,44 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class Parser
 {
-    private readonly SyntaxToken[] _tokens;
+    private readonly TokenInfo[] _tokens;
     private readonly DiagnosticBag _diagnostics = new();
     private int _position;
+
+    private readonly struct TokenInfo
+    {
+        public TokenInfo(GreenToken token, int fullStart, int spanStart)
+        {
+            Token = token;
+            FullStart = fullStart;
+            SpanStart = spanStart;
+        }
+
+        public GreenToken Token { get; }
+        public int FullStart { get; }
+        public int SpanStart { get; }
+        public int FullEnd => FullStart + Token.FullWidth;
+    }
 
     public Parser(string text)
     {
         var lexer = new Lexer(text);
-        var tokens = new List<SyntaxToken>();
-        SyntaxToken token;
+        var tokens = new List<TokenInfo>();
+        LexedToken lexed;
 
         do
         {
-            token = lexer.NextToken();
-            tokens.Add(token);
+            lexed = lexer.NextToken();
+            tokens.Add(new TokenInfo(lexed.Token, lexed.FullStart, lexed.SpanStart));
         }
-        while (token.Kind != NodeKind.EOFToken);
+        while (lexed.Token.Kind != NodeKind.EOFToken);
 
         _tokens = tokens.ToArray();
         _diagnostics.AddRange(lexer.Diagnostics);
@@ -31,16 +47,16 @@ public sealed class Parser
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics.ToList();
 
-    public ProgramSyntax ParseProgram()
+    internal GreenProgramNode ParseProgram()
     {
         var statements = ParseStatementList();
         var endOfFileToken = MatchToken(NodeKind.EOFToken);
-        return new ProgramSyntax(statements, endOfFileToken);
+        return GreenFactory.Program(statements, endOfFileToken);
     }
 
-    private StatementListSyntax ParseStatementList(params NodeKind[] terminators)
+    private GreenStatementListNode ParseStatementList(params NodeKind[] terminators)
     {
-        var statements = new List<StatementSyntax>();
+        var statements = new List<GreenNode>();
         while (!IsAtEnd() && !terminators.Contains(Current.Kind))
         {
             var statementStart = Current;
@@ -51,10 +67,10 @@ public sealed class Parser
                 NextToken();
         }
 
-        return new StatementListSyntax(statements);
+        return GreenFactory.StatementList(statements);
     }
 
-    private StatementSyntax ParseStatement()
+    private GreenNode ParseStatement()
     {
         return Current.Kind switch
         {
@@ -68,7 +84,7 @@ public sealed class Parser
         };
     }
 
-    private StatementSyntax ParseFunctionDefinition()
+    private GreenNode ParseFunctionDefinition()
     {
         var defineKeyword = MatchToken(NodeKind.DefineToken);
         var identifier = MatchToken(NodeKind.IdentifierToken);
@@ -76,52 +92,52 @@ public sealed class Parser
         var parameters = ParseIdentifierList(NodeKind.CloseParenToken);
         var closeParen = MatchToken(NodeKind.CloseParenToken);
 
-        FunctionBodySyntax body;
+        GreenNode body;
         if (Current.Kind == NodeKind.EqualsToken)
         {
             var equalsToken = MatchToken(NodeKind.EqualsToken);
             var bodyExpression = ParseExpression();
             var semicolon = MatchToken(NodeKind.SemicolonToken);
-            body = new ExpressionBodySyntax(equalsToken, bodyExpression, semicolon);
+            body = GreenFactory.ExpressionBody(equalsToken, bodyExpression, semicolon);
         }
         else
         {
             var beginKeyword = MatchToken(NodeKind.BeginToken);
             var bodyStatements = ParseStatementList(NodeKind.EndToken);
             var endKeyword = MatchToken(NodeKind.EndToken);
-            body = new StatementBodySyntax(beginKeyword, bodyStatements, endKeyword);
+            body = GreenFactory.StatementBody(beginKeyword, bodyStatements, endKeyword);
         }
 
-        return new FunctionDefinitionSyntax(defineKeyword, identifier, openParen, parameters, closeParen, body);
+        return GreenFactory.FunctionDefinition(defineKeyword, identifier, openParen, parameters, closeParen, body);
     }
 
-    private StatementSyntax ParsePrintStatement()
+    private GreenNode ParsePrintStatement()
     {
         var printKeyword = MatchToken(NodeKind.PrintToken);
         var expression = ParseExpression();
         var semicolon = MatchToken(NodeKind.SemicolonToken);
-        return new PrintStatementSyntax(printKeyword, expression, semicolon);
+        return GreenFactory.PrintStatement(printKeyword, expression, semicolon);
     }
 
-    private StatementSyntax ParseReturnStatement()
+    private GreenNode ParseReturnStatement()
     {
         var returnKeyword = MatchToken(NodeKind.ReturnToken);
         var expression = ParseExpression();
         var semicolon = MatchToken(NodeKind.SemicolonToken);
-        return new ReturnStatementSyntax(returnKeyword, expression, semicolon);
+        return GreenFactory.ReturnStatement(returnKeyword, expression, semicolon);
     }
 
-    private StatementSyntax ParseAssignmentStatement()
+    private GreenNode ParseAssignmentStatement()
     {
         var letKeyword = MatchToken(NodeKind.LetToken);
         var identifier = MatchToken(NodeKind.IdentifierToken);
         var equalsToken = MatchToken(NodeKind.EqualsToken);
         var expression = ParseExpression();
         var semicolon = MatchToken(NodeKind.SemicolonToken);
-        return new AssignmentStatementSyntax(letKeyword, identifier, equalsToken, expression, semicolon);
+        return GreenFactory.AssignmentStatement(letKeyword, identifier, equalsToken, expression, semicolon);
     }
 
-    private StatementSyntax ParseConditionalStatement()
+    private GreenNode ParseConditionalStatement()
     {
         var ifKeyword = MatchToken(NodeKind.IfToken);
         var condition = ParseExpression();
@@ -130,53 +146,63 @@ public sealed class Parser
         var elseKeyword = MatchToken(NodeKind.ElseToken);
         var elseStatements = ParseStatementList(NodeKind.FiToken);
         var fiKeyword = MatchToken(NodeKind.FiToken);
-        return new ConditionalStatementSyntax(ifKeyword, condition, thenKeyword, thenStatements, elseKeyword, elseStatements, fiKeyword);
+        return GreenFactory.ConditionalStatement(ifKeyword, condition, thenKeyword, thenStatements, elseKeyword, elseStatements, fiKeyword);
     }
 
-    private StatementSyntax ParseLoopStatement()
+    private GreenNode ParseLoopStatement()
     {
         var whileKeyword = MatchToken(NodeKind.WhileToken);
         var condition = ParseExpression();
         var doKeyword = MatchToken(NodeKind.DoToken);
         var body = ParseStatementList(NodeKind.OdToken);
         var odKeyword = MatchToken(NodeKind.OdToken);
-        return new LoopStatementSyntax(whileKeyword, condition, doKeyword, body, odKeyword);
+        return GreenFactory.LoopStatement(whileKeyword, condition, doKeyword, body, odKeyword);
     }
 
-    private StatementSyntax ParseErrorStatement()
+    private GreenNode ParseErrorStatement()
     {
-        var diagnostics = new List<Diagnostic>();
-        var tokens = new List<SyntaxToken>();
-        var startSpan = Current.FullSpan;
+        var tokens = new List<GreenToken>();
+        var startFull = CurrentFullStart;
+
+        TokenInfo lastTokenInfo = default;
+        var sawToken = false;
 
         while (Current.Kind != NodeKind.SemicolonToken &&
                Current.Kind != NodeKind.EOFToken &&
                !IsStatementTerminator(Current.Kind))
         {
-            tokens.Add(NextToken());
+            var info = ConsumeTokenInfo();
+            tokens.Add(info.Token);
+            lastTokenInfo = info;
+            sawToken = true;
         }
 
         if (Current.Kind == NodeKind.SemicolonToken)
-            tokens.Add(NextToken());
+        {
+            var info = ConsumeTokenInfo();
+            tokens.Add(info.Token);
+            lastTokenInfo = info;
+            sawToken = true;
+        }
 
-        var span = tokens.Count > 0 ? TextSpan.FromBounds(tokens.First().FullSpan.Start, tokens.Last().FullSpan.End) : startSpan;
+        var endFull = sawToken ? lastTokenInfo.FullEnd : CurrentFullStart;
+        var span = TextSpan.FromBounds(startFull, endFull);
         var diagnostic = new Diagnostic(DiagnosticSeverity.Error, "Unable to parse statement.", span);
         _diagnostics.Report(diagnostic);
-        diagnostics.Add(diagnostic);
 
-        return new ErrorStatementSyntax(tokens);
+        return GreenFactory.ErrorStatement(tokens);
     }
 
     private bool IsStatementTerminator(NodeKind kind) =>
         kind is NodeKind.ElseToken or NodeKind.FiToken or NodeKind.OdToken or NodeKind.EndToken;
 
-    private IdentifierListSyntax ParseIdentifierList(NodeKind terminator)
+    private GreenIdentifierListNode ParseIdentifierList(NodeKind terminator)
     {
-        var identifiers = new List<SyntaxToken>();
-        var separators = new List<SyntaxToken>();
+        var identifiers = new List<GreenToken>();
+        var separators = new List<GreenToken>();
 
         if (Current.Kind == terminator)
-            return new IdentifierListSyntax(identifiers, separators);
+            return GreenFactory.IdentifierList(identifiers, separators);
 
         while (true)
         {
@@ -201,16 +227,16 @@ public sealed class Parser
             }
         }
 
-        return new IdentifierListSyntax(identifiers, separators);
+        return GreenFactory.IdentifierList(identifiers, separators);
     }
 
-    private ExpressionListSyntax ParseExpressionList(NodeKind terminator)
+    private GreenExpressionListNode ParseExpressionList(NodeKind terminator)
     {
-        var expressions = new List<ExpressionSyntax>();
-        var separators = new List<SyntaxToken>();
+        var expressions = new List<GreenNode>();
+        var separators = new List<GreenToken>();
 
         if (Current.Kind == terminator)
-            return new ExpressionListSyntax(expressions, separators);
+            return GreenFactory.ExpressionList(expressions, separators);
 
         while (true)
         {
@@ -223,17 +249,17 @@ public sealed class Parser
 
             if (Current.Kind == terminator || Current.Kind == NodeKind.EOFToken)
             {
-                expressions.Add(new MissingExpressionSyntax(CreateMissingToken(NodeKind.MissingToken)));
+                expressions.Add(GreenFactory.MissingExpression(CreateMissingToken(NodeKind.MissingToken)));
                 break;
             }
         }
 
-        return new ExpressionListSyntax(expressions, separators);
+        return GreenFactory.ExpressionList(expressions, separators);
     }
 
-    private ExpressionSyntax ParseExpression() => ParseAdditiveExpression();
+    private GreenNode ParseExpression() => ParseAdditiveExpression();
 
-    private ExpressionSyntax ParseAdditiveExpression()
+    private GreenNode ParseAdditiveExpression()
     {
         var left = ParseMultiplicativeExpression();
 
@@ -241,13 +267,13 @@ public sealed class Parser
         {
             var operatorToken = NextToken();
             var right = ParseMultiplicativeExpression();
-            left = new BinaryExpressionSyntax(left, operatorToken, right);
+            left = GreenFactory.BinaryExpression(left, operatorToken, right);
         }
 
         return left;
     }
 
-    private ExpressionSyntax ParseMultiplicativeExpression()
+    private GreenNode ParseMultiplicativeExpression()
     {
         var left = ParseUnaryExpression();
 
@@ -255,57 +281,57 @@ public sealed class Parser
         {
             var operatorToken = NextToken();
             var right = ParseUnaryExpression();
-            left = new BinaryExpressionSyntax(left, operatorToken, right);
+            left = GreenFactory.BinaryExpression(left, operatorToken, right);
         }
 
         return left;
     }
 
-    private ExpressionSyntax ParseUnaryExpression()
+    private GreenNode ParseUnaryExpression()
     {
         if (Current.Kind == NodeKind.MinusToken)
         {
             var operatorToken = NextToken();
             var operand = ParseUnaryExpression();
-            return new UnaryExpressionSyntax(operatorToken, operand);
+            return GreenFactory.UnaryExpression(operatorToken, operand);
         }
 
         return ParsePrimaryExpression();
     }
 
-    private ExpressionSyntax ParsePrimaryExpression()
+    private GreenNode ParsePrimaryExpression()
     {
         if (Current.Kind == NodeKind.IdentifierToken && Peek(1).Kind == NodeKind.OpenParenToken)
             return ParseCallExpression();
 
         return Current.Kind switch
         {
-            NodeKind.IdentifierToken => new IdentifierExpressionSyntax(NextToken()),
-            NodeKind.NumberToken => new NumericLiteralExpressionSyntax(NextToken()),
-            NodeKind.StringToken => new StringLiteralExpressionSyntax(NextToken()),
+            NodeKind.IdentifierToken => GreenFactory.IdentifierExpression(NextToken()),
+            NodeKind.NumberToken => GreenFactory.NumericLiteralExpression(NextToken()),
+            NodeKind.StringToken => GreenFactory.StringLiteralExpression(NextToken()),
             NodeKind.OpenParenToken => ParseParenthesizedExpression(),
-            _ => new MissingExpressionSyntax(CreateMissingToken(NodeKind.MissingToken))
+            _ => GreenFactory.MissingExpression(CreateMissingToken(NodeKind.MissingToken))
         };
     }
 
-    private ExpressionSyntax ParseCallExpression()
+    private GreenNode ParseCallExpression()
     {
         var identifier = MatchToken(NodeKind.IdentifierToken);
         var openParen = MatchToken(NodeKind.OpenParenToken);
         var arguments = ParseExpressionList(NodeKind.CloseParenToken);
         var closeParen = MatchToken(NodeKind.CloseParenToken);
-        return new CallExpressionSyntax(identifier, openParen, arguments, closeParen);
+        return GreenFactory.CallExpression(identifier, openParen, arguments, closeParen);
     }
 
-    private ExpressionSyntax ParseParenthesizedExpression()
+    private GreenNode ParseParenthesizedExpression()
     {
         var openParen = MatchToken(NodeKind.OpenParenToken);
         var expression = ParseExpression();
         var closeParen = MatchToken(NodeKind.CloseParenToken);
-        return new ParenthesizedExpressionSyntax(openParen, expression, closeParen);
+        return GreenFactory.ParenthesizedExpression(openParen, expression, closeParen);
     }
 
-    private SyntaxToken MatchToken(NodeKind expected)
+    private GreenToken MatchToken(NodeKind expected)
     {
         if (Current.Kind == expected)
             return NextToken();
@@ -313,30 +339,42 @@ public sealed class Parser
         return CreateMissingToken(expected);
     }
 
-    private SyntaxToken CreateMissingToken(NodeKind expected)
+    private GreenToken CreateMissingToken(NodeKind expected)
     {
-        var position = Current.Span.Start;
-        var span = new TextSpan(position, 0);
-        var diagnostic = new Diagnostic(DiagnosticSeverity.Error, $"Expected token '{expected}'.", span);
+        var diagnostic = new Diagnostic(DiagnosticSeverity.Error, $"Expected token '{expected}'.", new TextSpan(CurrentSpanStart, 0));
         _diagnostics.Report(diagnostic);
-        return new SyntaxToken(expected, string.Empty, span, diagnostics: new[] { diagnostic }, isMissing: true);
+        return CreateMissingToken(expected, diagnostic);
     }
 
-    private SyntaxToken NextToken()
+    private GreenToken CreateMissingToken(NodeKind expected, Diagnostic diagnostic)
     {
-        var current = Current;
-        _position = Math.Min(_position + 1, _tokens.Length - 1);
-        return current;
+        return new GreenToken(expected, string.Empty, diagnostics: new[] { diagnostic }, isMissing: true);
     }
 
-    private SyntaxToken Peek(int offset)
+    private GreenToken NextToken() => ConsumeTokenInfo().Token;
+
+    private TokenInfo ConsumeTokenInfo()
+    {
+        var info = CurrentInfo;
+        _position = Math.Min(_position + 1, _tokens.Length - 1);
+        return info;
+    }
+
+    private GreenToken Peek(int offset) => PeekInfo(offset).Token;
+
+    private TokenInfo CurrentInfo => PeekInfo(0);
+
+    private TokenInfo PeekInfo(int offset)
     {
         var index = Math.Min(_position + offset, _tokens.Length - 1);
         return _tokens[index];
     }
 
-    private SyntaxToken Current => Peek(0);
+    private GreenToken Current => CurrentInfo.Token;
+
+    private int CurrentSpanStart => CurrentInfo.SpanStart;
+
+    private int CurrentFullStart => CurrentInfo.FullStart;
 
     private bool IsAtEnd() => Current.Kind == NodeKind.EOFToken;
 }
-

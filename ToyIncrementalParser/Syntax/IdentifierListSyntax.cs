@@ -1,44 +1,53 @@
+using System;
 using System.Collections.Generic;
-using System.Linq;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class IdentifierListSyntax : SyntaxNode
 {
-    public IdentifierListSyntax(IEnumerable<SyntaxToken> identifiers, IEnumerable<SyntaxToken> separators)
-        : base(Interleave(identifiers, separators))
+    private IReadOnlyList<SyntaxToken>? _identifiers;
+    private IReadOnlyList<SyntaxToken>? _separators;
+
+    internal IdentifierListSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenIdentifierListNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        Identifiers = identifiers.ToArray();
-        Separators = separators.ToArray();
     }
 
-    public IReadOnlyList<SyntaxToken> Identifiers { get; }
-    public IReadOnlyList<SyntaxToken> Separators { get; }
+    public IReadOnlyList<SyntaxToken> Identifiers => _identifiers ??= CollectIdentifiers();
+
+    public IReadOnlyList<SyntaxToken> Separators => _separators ??= CollectSeparators();
 
     public override NodeKind Kind => NodeKind.IdentifierList;
 
-    private static IEnumerable<SyntaxNode> Interleave(IEnumerable<SyntaxToken> identifiers, IEnumerable<SyntaxToken> separators)
+    private IReadOnlyList<SyntaxToken> CollectIdentifiers()
     {
-        using var idEnumerator = identifiers.GetEnumerator();
-        using var sepEnumerator = separators.GetEnumerator();
+        var list = new List<SyntaxToken>();
+        var count = Green.SlotCount;
 
-        var hasIdentifier = idEnumerator.MoveNext();
-        var hasSeparator = sepEnumerator.MoveNext();
-
-        while (hasIdentifier || hasSeparator)
+        for (var i = 0; i < count; i++)
         {
-            if (hasIdentifier)
-            {
-                yield return idEnumerator.Current;
-                hasIdentifier = idEnumerator.MoveNext();
-            }
-
-            if (hasSeparator)
-            {
-                yield return sepEnumerator.Current;
-                hasSeparator = sepEnumerator.MoveNext();
-            }
+            var child = GetChild(i);
+            if (child is SyntaxToken token && token.Kind == NodeKind.IdentifierToken)
+                list.Add(token);
         }
+
+        return list.Count == 0 ? Array.Empty<SyntaxToken>() : list.ToArray();
+    }
+
+    private IReadOnlyList<SyntaxToken> CollectSeparators()
+    {
+        var list = new List<SyntaxToken>();
+        var count = Green.SlotCount;
+
+        for (var i = 0; i < count; i++)
+        {
+            var child = GetChild(i);
+            if (child is SyntaxToken token && token.Kind == NodeKind.CommaToken)
+                list.Add(token);
+        }
+
+        return list.Count == 0 ? Array.Empty<SyntaxToken>() : list.ToArray();
     }
 }
 
