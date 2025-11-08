@@ -46,5 +46,7 @@ public sealed class SyntaxToken : SyntaxNode
     public IReadOnlyList<SyntaxTrivia> TrailingTrivia { get; }
 
     public override IEnumerable<SyntaxNode> GetChildren() => Array.Empty<SyntaxNode>();
+
+    public bool Equals(SyntaxToken? other) => Equals((SyntaxNode?)other);
 }
 
