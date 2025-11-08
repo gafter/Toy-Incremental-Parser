@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using ToyIncrementalParser.Syntax;
@@ -53,6 +54,45 @@ public class InterpreterTests
         var expectedOutput = string.Join(newline, expectedMoves) + newline;
         Assert.Equal(expectedOutput, writer.ToString());
         Assert.Equal(ToyValueRuntime.Zero, result);
+    }
+
+    [Fact]
+    public void DivisionByZero_ThrowsRuntimeError()
+    {
+        const string source = "print 1 / (1 - 1);";
+
+        var tree = SyntaxTree.Parse(source);
+        var interpreter = new InterpreterRuntime();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => interpreter.Execute(tree));
+        Assert.Contains("Division by zero.", exception.Message);
+    }
+
+    [Fact]
+    public void UndefinedVariable_ThrowsRuntimeError()
+    {
+        const string source = "print x;";
+
+        var tree = SyntaxTree.Parse(source);
+        var interpreter = new InterpreterRuntime();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => interpreter.Execute(tree));
+        Assert.Contains("Undefined variable 'x'.", exception.Message);
+    }
+
+    [Fact]
+    public void FunctionCall_WithWrongArity_ThrowsRuntimeError()
+    {
+        const string source = """
+        define add(x, y) = x + y;
+        print add(1);
+        """;
+
+        var tree = SyntaxTree.Parse(source);
+        var interpreter = new InterpreterRuntime();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => interpreter.Execute(tree));
+        Assert.Contains("expected 2 arguments but received 1", exception.Message);
     }
 }
 

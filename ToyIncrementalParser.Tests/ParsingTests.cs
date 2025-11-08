@@ -152,5 +152,50 @@ public class ParsingTests
         Assert.Equal("\"hi\\n\"", literal.StringToken.Text);
         Assert.Equal("hi\n", literal.Value);
     }
+
+    [Fact]
+    public void IdentifierList_WithMissingIdentifiers_ProducesDiagnostics()
+    {
+        const string source = "define f(,) = 0;";
+
+        var tree = SyntaxTree.Parse(source);
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var function = Assert.IsType<FunctionDefinitionSyntax>(statement);
+
+        Assert.Equal(2, function.Parameters.Identifiers.Count);
+        Assert.All(function.Parameters.Identifiers, identifier => Assert.True(identifier.IsMissing));
+        Assert.Contains(tree.Diagnostics, diagnostic => diagnostic.Message.Contains("IdentifierToken"));
+    }
+
+    [Fact]
+    public void ExpressionList_WithTrailingComma_CreatesMissingExpression()
+    {
+        const string source = "print f(x,);";
+
+        var tree = SyntaxTree.Parse(source);
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var print = Assert.IsType<PrintStatementSyntax>(statement);
+        var call = Assert.IsType<CallExpressionSyntax>(print.Expression);
+
+        Assert.Equal(2, call.Arguments.Expressions.Count);
+        var missing = Assert.IsType<MissingExpressionSyntax>(call.Arguments.Expressions[1]);
+        Assert.True(missing.MissingToken.IsMissing);
+        Assert.Contains(tree.Diagnostics, diagnostic => diagnostic.Message.Contains("MissingToken"));
+    }
+
+    [Fact]
+    public void ErrorStatement_AccumulatesTokensUntilTerminator()
+    {
+        const string source = "foo bar;";
+
+        var tree = SyntaxTree.Parse(source);
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var error = Assert.IsType<ErrorStatementSyntax>(statement);
+
+        Assert.Equal(3, error.Tokens.Count);
+        Assert.Equal(NodeKind.IdentifierToken, error.Tokens[0].Kind);
+        Assert.Equal(NodeKind.IdentifierToken, error.Tokens[1].Kind);
+        Assert.Equal(NodeKind.SemicolonToken, error.Tokens[2].Kind);
+    }
 }
 
