@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Text;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
@@ -22,6 +24,38 @@ public sealed class IncrementalParsingTests
         var print = Assert.IsType<PrintStatementSyntax>(statement);
         var identifier = Assert.IsType<IdentifierExpressionSyntax>(print.Expression);
         Assert.Equal("xy", identifier.Identifier.Text);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(12345)]
+    [InlineData(8675309)]
+    [InlineData(int.MaxValue)]
+    public void WithChange_RandomSpanReplacement_MatchesFullParse(int seed)
+    {
+        const int iterations = 25;
+        var random = new Random(seed);
+
+        for (var i = 0; i < iterations; i++)
+        {
+            var originalText = GenerateRandomProgram(random);
+            if (string.IsNullOrEmpty(originalText))
+                continue;
+
+            var originalTree = SyntaxTree.Parse(originalText);
+
+            var targetSpan = RandomNonEmptySpan(random, originalText.Length);
+            var sourceSpan = RandomNonEmptySpan(random, originalText.Length);
+
+            var replacementText = originalText.Substring(sourceSpan.Start, sourceSpan.Length);
+            var change = new TextChange(targetSpan, replacementText);
+
+            var incrementalTree = originalTree.WithChange(change);
+            var reparsedTree = SyntaxTree.Parse(change.ApplyTo(originalText));
+
+            AssertTreesEquivalent(reparsedTree, incrementalTree);
+        }
     }
 
     [Fact]
@@ -148,6 +182,85 @@ public sealed class IncrementalParsingTests
             Assert.Equal(e.Message, a.Message);
             Assert.Equal(e.Span, a.Span);
         }
+    }
+
+    private static string GenerateRandomProgram(Random random)
+    {
+        var statementCount = random.Next(1, 8);
+        var builder = new StringBuilder();
+
+        for (var i = 0; i < statementCount; i++)
+        {
+            switch (random.Next(3))
+            {
+                case 0:
+                    builder.Append("print ");
+                    builder.Append(GenerateRandomExpression(random));
+                    builder.Append(';');
+                    break;
+                case 1:
+                    builder.Append("let ");
+                    builder.Append(GenerateRandomIdentifier(random));
+                    builder.Append(" = ");
+                    builder.Append(GenerateRandomExpression(random));
+                    builder.Append(';');
+                    break;
+                default:
+                    builder.Append(GenerateRandomIdentifier(random));
+                    builder.Append(" = ");
+                    builder.Append(GenerateRandomExpression(random));
+                    builder.Append(';');
+                    break;
+            }
+
+            if (random.Next(2) == 0)
+                builder.Append('\n');
+            else
+                builder.Append(' ');
+        }
+
+        return builder.ToString();
+    }
+
+    private static string GenerateRandomExpression(Random random, int depth = 0)
+    {
+        var cappedDepth = depth >= 3;
+
+        switch (random.Next(4))
+        {
+            case 0:
+                return GenerateRandomIdentifier(random);
+            case 1:
+                return random.Next(0, 1_000).ToString();
+            case 2:
+                return "\"" + GenerateRandomIdentifier(random) + "\"";
+            default:
+                if (cappedDepth)
+                    return random.Next(0, 1_000).ToString();
+
+                return "(" + GenerateRandomExpression(random, depth + 1) + " + " + GenerateRandomExpression(random, depth + 1) + ")";
+        }
+    }
+
+    private static string GenerateRandomIdentifier(Random random)
+    {
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz";
+        var length = random.Next(1, 6);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+            builder.Append(alphabet[random.Next(alphabet.Length)]);
+        return builder.ToString();
+    }
+
+    private static TextSpan RandomNonEmptySpan(Random random, int textLength)
+    {
+        if (textLength <= 0)
+            return new TextSpan(0, 0);
+
+        var start = random.Next(textLength);
+        var maxLength = textLength - start;
+        var length = random.Next(1, maxLength + 1);
+        return new TextSpan(start, length);
     }
 }
 
