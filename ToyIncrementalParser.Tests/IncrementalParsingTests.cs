@@ -344,7 +344,7 @@ public sealed class IncrementalParsingTests
         AppendLineTerminator(random, builder, indent);
         builder.Append(indent);
         builder.Append("begin");
-        AppendLineTerminator(random, builder, indent + "    ");
+        AppendLineTerminator(random, builder, indent);
         GenerateStatementList(random, builder, ref budget, allowEmpty: true, indent + "    ");
         builder.Append(indent);
         builder.Append("end");
