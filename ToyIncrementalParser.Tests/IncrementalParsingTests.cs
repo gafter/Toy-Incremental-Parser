@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
@@ -186,69 +187,460 @@ public sealed class IncrementalParsingTests
 
     private static string GenerateRandomProgram(Random random)
     {
-        var statementCount = random.Next(1, 8);
         var builder = new StringBuilder();
+        var budget = random.Next(30, 80);
 
-        for (var i = 0; i < statementCount; i++)
+        AppendOptionalBlankLines(builder, random);
+        GenerateStatementList(random, builder, ref budget, allowEmpty: false, indent: string.Empty);
+        AppendOptionalBlankLines(builder, random);
+
+        return builder.ToString();
+    }
+
+    private static void GenerateStatementList(Random random, StringBuilder builder, ref int budget, bool allowEmpty, string indent)
+    {
+        if (budget <= 0)
         {
-            switch (random.Next(3))
+            if (!allowEmpty)
             {
-                case 0:
-                    builder.Append("print ");
-                    builder.Append(GenerateRandomExpression(random));
-                    builder.Append(';');
-                    break;
-                case 1:
-                    builder.Append("let ");
-                    builder.Append(GenerateRandomIdentifier(random));
-                    builder.Append(" = ");
-                    builder.Append(GenerateRandomExpression(random));
-                    builder.Append(';');
-                    break;
-                default:
-                    builder.Append(GenerateRandomIdentifier(random));
-                    builder.Append(" = ");
-                    builder.Append(GenerateRandomExpression(random));
-                    builder.Append(';');
-                    break;
+                builder.Append(indent);
+                builder.Append("print");
+                AppendSpace(random, builder, require: true);
+                builder.Append("0");
+                AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+            }
+            return;
+        }
+
+        var min = allowEmpty ? 0 : 1;
+        var maxPossible = Math.Min(Math.Max(min, budget), min + 6);
+        var count = random.Next(min, maxPossible + 1);
+
+        for (var i = 0; i < count; i++)
+        {
+            GenerateStatement(random, builder, ref budget, indent);
+            if (budget <= 0 && i + 1 < count)
+                break;
+        }
+    }
+
+    private static void GenerateStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        AppendLeadingStatementTrivia(random, builder, indent);
+
+        if (!TryConsumeBudget(ref budget))
+        {
+            builder.Append(indent);
+            builder.Append("print");
+            AppendSpace(random, builder, require: true);
+            builder.Append("0");
+            AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+            return;
+        }
+
+        var choices = new List<StatementKind>
+        {
+            StatementKind.Print,
+            StatementKind.Return,
+            StatementKind.Let,
+        };
+
+        if (budget > 0)
+        {
+            choices.Add(StatementKind.DefineExpression);
+            choices.Add(StatementKind.While);
+            choices.Add(StatementKind.If);
+        }
+
+        if (budget > 1)
+            choices.Add(StatementKind.DefineBlock);
+
+        var kind = choices[random.Next(choices.Count)];
+
+        switch (kind)
+        {
+            case StatementKind.Print:
+                EmitPrintStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.Return:
+                EmitReturnStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.Let:
+                EmitLetStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.DefineExpression:
+                EmitDefineExpressionStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.DefineBlock:
+                EmitDefineBlockStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.If:
+                EmitIfStatement(random, builder, ref budget, indent);
+                break;
+            case StatementKind.While:
+                EmitWhileStatement(random, builder, ref budget, indent);
+                break;
+        }
+    }
+
+    private static void EmitPrintStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("print");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+    }
+
+    private static void EmitReturnStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("return");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+    }
+
+    private static void EmitLetStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("let");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateIdentifier(random));
+        AppendSpace(random, builder, require: true);
+        builder.Append('=');
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+    }
+
+    private static void EmitDefineExpressionStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("define");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateIdentifier(random));
+        AppendSpace(random, builder, require: false);
+        builder.Append('(');
+        builder.Append(GenerateParameterList(random));
+        builder.Append(')');
+        AppendSpace(random, builder, require: true);
+        builder.Append('=');
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: true);
+    }
+
+    private static void EmitDefineBlockStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("define");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateIdentifier(random));
+        AppendSpace(random, builder, require: false);
+        builder.Append('(');
+        builder.Append(GenerateParameterList(random));
+        builder.Append(')');
+        AppendLineTerminator(random, builder, indent);
+        builder.Append(indent);
+        builder.Append("begin");
+        AppendLineTerminator(random, builder, indent);
+        GenerateStatementList(random, builder, ref budget, allowEmpty: true, indent + "    ");
+        builder.Append(indent);
+        builder.Append("end");
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: false);
+    }
+
+    private static void EmitIfStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("if");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendSpace(random, builder, require: true);
+        builder.Append("then");
+        AppendLineTerminator(random, builder, indent);
+        GenerateStatementList(random, builder, ref budget, allowEmpty: false, indent + "    ");
+        builder.Append(indent);
+        builder.Append("else");
+        AppendLineTerminator(random, builder, indent);
+        GenerateStatementList(random, builder, ref budget, allowEmpty: false, indent + "    ");
+        builder.Append(indent);
+        builder.Append("fi");
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: false);
+    }
+
+    private static void EmitWhileStatement(Random random, StringBuilder builder, ref int budget, string indent)
+    {
+        builder.Append(indent);
+        builder.Append("while");
+        AppendSpace(random, builder, require: true);
+        builder.Append(GenerateExpression(random, ref budget, depth: 0));
+        AppendSpace(random, builder, require: true);
+        builder.Append("do");
+        AppendLineTerminator(random, builder, indent);
+        GenerateStatementList(random, builder, ref budget, allowEmpty: false, indent + "    ");
+        builder.Append(indent);
+        builder.Append("od");
+        AppendStatementTerminator(random, builder, indent, requireSemicolon: false);
+    }
+
+    private static string GenerateExpression(Random random, ref int budget, int depth)
+    {
+        if (!TryConsumeBudget(ref budget))
+            return depth == 0 ? "0" : GenerateIdentifier(random);
+
+        var allowRecursion = depth < 4 && budget > 0;
+
+        var choices = new List<ExpressionKind>
+        {
+            ExpressionKind.Identifier,
+            ExpressionKind.Number,
+            ExpressionKind.String,
+        };
+
+        if (allowRecursion)
+        {
+            choices.Add(ExpressionKind.Parenthesized);
+            choices.Add(ExpressionKind.Unary);
+            choices.Add(ExpressionKind.Call);
+        }
+
+        if (allowRecursion && budget > 1)
+            choices.Add(ExpressionKind.Binary);
+
+        var kind = choices[random.Next(choices.Count)];
+
+        return kind switch
+        {
+            ExpressionKind.Identifier => GenerateIdentifier(random),
+            ExpressionKind.Number => GenerateNumberLiteral(random),
+            ExpressionKind.String => GenerateStringLiteral(random),
+            ExpressionKind.Parenthesized => "(" + GenerateExpression(random, ref budget, depth + 1) + ")",
+            ExpressionKind.Unary => "-" + MaybeSpace(random) + GenerateExpression(random, ref budget, depth + 1),
+            ExpressionKind.Binary => GenerateBinaryExpression(random, ref budget, depth + 1),
+            ExpressionKind.Call => GenerateCallExpression(random, ref budget, depth + 1),
+            _ => "0",
+        };
+    }
+
+    private static string GenerateBinaryExpression(Random random, ref int budget, int depth)
+    {
+        var left = GenerateExpression(random, ref budget, depth);
+        var op = random.Next(4) switch
+        {
+            0 => "+",
+            1 => "-",
+            2 => "*",
+            _ => "/",
+        };
+        var right = GenerateExpression(random, ref budget, depth);
+        return "(" + left + MaybeSpace(random) + op + MaybeSpace(random) + right + ")";
+    }
+
+    private static string GenerateCallExpression(Random random, ref int budget, int depth)
+    {
+        var identifier = GenerateIdentifier(random);
+        var args = GenerateExpressionList(random, ref budget, depth + 1);
+        return identifier + "(" + args + ")";
+    }
+
+    private static string GenerateExpressionList(Random random, ref int budget, int depth)
+    {
+        if (budget <= 0 || random.Next(3) == 0)
+            return string.Empty;
+
+        var maxArgs = Math.Min(4, budget);
+        var count = random.Next(0, maxArgs + 1);
+        if (count == 0)
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        for (var i = 0; i < count; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(',');
+                builder.Append(MaybeSpace(random));
             }
 
-            if (random.Next(2) == 0)
-                builder.Append('\n');
-            else
-                builder.Append(' ');
+            builder.Append(GenerateExpression(random, ref budget, depth));
         }
 
         return builder.ToString();
     }
 
-    private static string GenerateRandomExpression(Random random, int depth = 0)
+    private static string GenerateParameterList(Random random)
     {
-        var cappedDepth = depth >= 3;
+        if (random.Next(3) == 0)
+            return string.Empty;
 
-        switch (random.Next(4))
+        var count = random.Next(0, 5);
+        if (count == 0)
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        for (var i = 0; i < count; i++)
         {
-            case 0:
-                return GenerateRandomIdentifier(random);
-            case 1:
-                return random.Next(0, 1_000).ToString();
-            case 2:
-                return "\"" + GenerateRandomIdentifier(random) + "\"";
-            default:
-                if (cappedDepth)
-                    return random.Next(0, 1_000).ToString();
+            if (i > 0)
+                builder.Append(", ");
 
-                return "(" + GenerateRandomExpression(random, depth + 1) + " + " + GenerateRandomExpression(random, depth + 1) + ")";
+            builder.Append(GenerateIdentifier(random));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string GenerateIdentifier(Random random)
+    {
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz";
+        const string digits = "0123456789";
+        var length = random.Next(1, 8);
+        var builder = new StringBuilder(length);
+        builder.Append(alphabet[random.Next(alphabet.Length)]);
+        for (var i = 1; i < length; i++)
+        {
+            var source = random.Next(3) == 0 ? digits : alphabet;
+            builder.Append(source[random.Next(source.Length)]);
+        }
+
+        var result = builder.ToString();
+        if (Array.IndexOf(Keywords, result) >= 0)
+            return result + "_";
+        return result;
+    }
+
+    private static string GenerateNumberLiteral(Random random)
+    {
+        var value = random.Next(0, 10_000);
+        if (random.Next(3) == 0)
+        {
+            var fraction = random.NextDouble();
+            return (value + fraction).ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string GenerateStringLiteral(Random random)
+    {
+        var length = random.Next(0, 5);
+        var builder = new StringBuilder("\"");
+        for (var i = 0; i < length; i++)
+        {
+            var choice = random.Next(5);
+            switch (choice)
+            {
+                case 0:
+                    builder.Append("\\\"");
+                    break;
+                case 1:
+                    builder.Append("\\n");
+                    break;
+                case 2:
+                    builder.Append("\\\\");
+                    break;
+                default:
+                    builder.Append((char)random.Next('a', 'z' + 1));
+                    break;
+            }
+        }
+
+        builder.Append('"');
+        return builder.ToString();
+    }
+
+    private static void AppendLeadingStatementTrivia(Random random, StringBuilder builder, string indent)
+    {
+        var repetitions = random.Next(0, 3);
+        for (var i = 0; i < repetitions; i++)
+        {
+            if (random.Next(2) == 0)
+            {
+                builder.Append(indent);
+                builder.Append("// ");
+                builder.Append(GenerateCommentText(random));
+                builder.Append('\n');
+            }
+            else
+            {
+                builder.Append('\n');
+            }
         }
     }
 
-    private static string GenerateRandomIdentifier(Random random)
+    private static void AppendStatementTerminator(Random random, StringBuilder builder, string indent, bool requireSemicolon)
     {
-        const string alphabet = "abcdefghijklmnopqrstuvwxyz";
-        var length = random.Next(1, 6);
-        var builder = new StringBuilder(length);
+        if (requireSemicolon)
+            builder.Append(';');
+
+        if (random.Next(3) == 0)
+        {
+            AppendSpace(random, builder, require: true);
+            builder.Append("// ");
+            builder.Append(GenerateCommentText(random));
+        }
+
+        builder.Append('\n');
+
+        if (random.Next(4) == 0)
+            builder.Append('\n');
+    }
+
+    private static void AppendLineTerminator(Random random, StringBuilder builder, string indent)
+    {
+        if (random.Next(3) == 0)
+        {
+            AppendSpace(random, builder, require: true);
+            builder.Append("// ");
+            builder.Append(GenerateCommentText(random));
+        }
+
+        builder.Append('\n');
+
+        if (random.Next(3) == 0)
+            builder.Append(indent);
+    }
+
+    private static void AppendSpace(Random random, StringBuilder builder, bool require)
+    {
+        if (!require && random.Next(2) == 0)
+            return;
+
+        var options = new[] { " ", "  ", "\t", " \t" };
+        builder.Append(options[random.Next(options.Length)]);
+    }
+
+    private static string MaybeSpace(Random random) =>
+        random.Next(2) == 0 ? " " : string.Empty;
+
+    private static void AppendOptionalBlankLines(StringBuilder builder, Random random)
+    {
+        var count = random.Next(0, 3);
+        for (var i = 0; i < count; i++)
+            builder.Append('\n');
+    }
+
+    private static bool TryConsumeBudget(ref int budget)
+    {
+        if (budget <= 0)
+            return false;
+
+        budget--;
+        return true;
+    }
+
+    private static string GenerateCommentText(Random random)
+    {
+        var length = random.Next(1, 5);
+        var builder = new StringBuilder();
         for (var i = 0; i < length; i++)
-            builder.Append(alphabet[random.Next(alphabet.Length)]);
+        {
+            if (i > 0)
+                builder.Append(' ');
+            builder.Append(GenerateIdentifier(random));
+        }
+
         return builder.ToString();
     }
 
@@ -258,9 +650,37 @@ public sealed class IncrementalParsingTests
             return new TextSpan(0, 0);
 
         var start = random.Next(textLength);
-        var maxLength = textLength - start;
+        var maxLength = Math.Max(1, textLength - start);
         var length = random.Next(1, maxLength + 1);
         return new TextSpan(start, length);
+    }
+
+    private static readonly string[] Keywords =
+    {
+        "print", "return", "define", "begin", "end", "let", "if", "then",
+        "else", "fi", "while", "do", "od"
+    };
+
+    private enum StatementKind
+    {
+        Print,
+        Return,
+        Let,
+        DefineExpression,
+        DefineBlock,
+        If,
+        While,
+    }
+
+    private enum ExpressionKind
+    {
+        Identifier,
+        Number,
+        String,
+        Parenthesized,
+        Unary,
+        Binary,
+        Call,
     }
 }
 
