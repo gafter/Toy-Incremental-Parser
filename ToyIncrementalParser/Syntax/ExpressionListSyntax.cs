@@ -1,44 +1,58 @@
+using System;
 using System.Collections.Generic;
-using System.Linq;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ExpressionListSyntax : SyntaxNode
 {
-    public ExpressionListSyntax(IEnumerable<ExpressionSyntax> expressions, IEnumerable<SyntaxToken> separators)
-        : base(Interleave(expressions, separators))
+    private IReadOnlyList<ExpressionSyntax>? _expressions;
+    private IReadOnlyList<SyntaxToken>? _separators;
+
+    internal ExpressionListSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenExpressionListNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        Expressions = expressions.ToArray();
-        Separators = separators.ToArray();
     }
 
-    public IReadOnlyList<ExpressionSyntax> Expressions { get; }
-    public IReadOnlyList<SyntaxToken> Separators { get; }
+    public IReadOnlyList<ExpressionSyntax> Expressions => _expressions ??= CollectExpressions();
+
+    public IReadOnlyList<SyntaxToken> Separators => _separators ??= CollectSeparators();
 
     public override NodeKind Kind => NodeKind.ExpressionList;
 
-    private static IEnumerable<SyntaxNode> Interleave(IEnumerable<ExpressionSyntax> expressions, IEnumerable<SyntaxToken> separators)
+    private IReadOnlyList<ExpressionSyntax> CollectExpressions()
     {
-        using var exprEnumerator = expressions.GetEnumerator();
-        using var sepEnumerator = separators.GetEnumerator();
+        var list = new List<ExpressionSyntax>();
+        var slots = GetChildSlots();
 
-        var hasExpression = exprEnumerator.MoveNext();
-        var hasSeparator = sepEnumerator.MoveNext();
-
-        while (hasExpression || hasSeparator)
+        foreach (var slot in slots)
         {
-            if (hasExpression)
-            {
-                yield return exprEnumerator.Current;
-                hasExpression = exprEnumerator.MoveNext();
-            }
-
-            if (hasSeparator)
-            {
-                yield return sepEnumerator.Current;
-                hasSeparator = sepEnumerator.MoveNext();
-            }
+            if (slot is ExpressionSyntax expression)
+                list.Add(expression);
         }
+
+        return list.Count == 0 ? Array.Empty<ExpressionSyntax>() : list.ToArray();
+    }
+
+    private IReadOnlyList<SyntaxToken> CollectSeparators()
+    {
+        var list = new List<SyntaxToken>();
+        var slots = GetChildSlots();
+
+        foreach (var slot in slots)
+        {
+            if (slot is SyntaxToken token && token.Kind == NodeKind.CommaToken)
+                list.Add(token);
+        }
+
+        return list.Count == 0 ? Array.Empty<SyntaxToken>() : list.ToArray();
+    }
+
+    private IEnumerable<SyntaxNode?> GetChildSlots()
+    {
+        var count = Green.SlotCount;
+        for (var i = 0; i < count; i++)
+            yield return GetChild(i);
     }
 }
 

@@ -57,6 +57,66 @@ public sealed class IncrementalParsingTests
         Assert.Equal(42, literal.Value);
     }
 
+    [Fact]
+    public void WithChange_InsertStatement_ReusesSurroundingStatements()
+    {
+        const string original = "print 1;\nprint 3;\n";
+        const string updated = "print 1;\nprint 2;\nprint 3;\n";
+
+        var originalTree = SyntaxTree.Parse(original);
+        var change = TextChange.FromTextDifference(original, updated);
+        var incrementalTree = originalTree.WithChange(change);
+        var reparsedTree = SyntaxTree.Parse(updated);
+
+        AssertTreesEquivalent(reparsedTree, incrementalTree);
+
+        var originalStatements = originalTree.Root.Statements.Statements;
+        var incrementalStatements = incrementalTree.Root.Statements.Statements;
+
+        Assert.Equal(3, incrementalStatements.Count);
+        Assert.Same(((SyntaxNode)originalStatements[0]).Green, ((SyntaxNode)incrementalStatements[0]).Green);
+        Assert.Same(((SyntaxNode)originalStatements[1]).Green, ((SyntaxNode)incrementalStatements[2]).Green);
+    }
+
+    [Fact]
+    public void WithChange_DeleteStatement_ReusesRemainingStatements()
+    {
+        const string original = "print 1;\nprint 2;\nprint 3;\n";
+        const string updated = "print 1;\nprint 3;\n";
+
+        var originalTree = SyntaxTree.Parse(original);
+        var change = TextChange.FromTextDifference(original, updated);
+        var incrementalTree = originalTree.WithChange(change);
+        var reparsedTree = SyntaxTree.Parse(updated);
+
+        AssertTreesEquivalent(reparsedTree, incrementalTree);
+
+        var originalStatements = originalTree.Root.Statements.Statements;
+        var incrementalStatements = incrementalTree.Root.Statements.Statements;
+
+        Assert.Equal(2, incrementalStatements.Count);
+        Assert.Same(((SyntaxNode)originalStatements[0]).Green, ((SyntaxNode)incrementalStatements[0]).Green);
+        Assert.Same(((SyntaxNode)originalStatements[2]).Green, ((SyntaxNode)incrementalStatements[1]).Green);
+    }
+
+    [Fact]
+    public void WithChange_EditStatement_DoesNotReuseChangedNode()
+    {
+        const string original = "print 1;";
+        const string updated = "print 2;";
+
+        var originalTree = SyntaxTree.Parse(original);
+        var change = TextChange.FromTextDifference(original, updated);
+        var incrementalTree = originalTree.WithChange(change);
+        var reparsedTree = SyntaxTree.Parse(updated);
+
+        AssertTreesEquivalent(reparsedTree, incrementalTree);
+
+        var originalStatement = Assert.Single(originalTree.Root.Statements.Statements);
+        var newStatement = Assert.Single(incrementalTree.Root.Statements.Statements);
+        Assert.NotSame(((SyntaxNode)originalStatement).Green, ((SyntaxNode)newStatement).Green);
+    }
+
     private static SyntaxTree ApplyChange(string originalText, string updatedText)
     {
         var tree = SyntaxTree.Parse(originalText);

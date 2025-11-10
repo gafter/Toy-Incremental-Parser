@@ -1,14 +1,17 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class IdentifierExpressionSyntax : ExpressionSyntax
 {
-    public IdentifierExpressionSyntax(SyntaxToken identifier)
-        : base(new SyntaxNode[] { identifier })
+    private SyntaxToken? _identifier;
+
+    internal IdentifierExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenIdentifierExpressionNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        Identifier = identifier;
     }
 
-    public SyntaxToken Identifier { get; }
+    public SyntaxToken Identifier => GetRequiredToken(ref _identifier, 0);
 
     public override NodeKind Kind => NodeKind.IdentifierExpression;
 }

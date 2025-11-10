@@ -1,19 +1,22 @@
-using System.Collections.Generic;
-using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ProgramSyntax : SyntaxNode
 {
-    public ProgramSyntax(StatementListSyntax statements, SyntaxToken endOfFileToken, IEnumerable<Diagnostic>? diagnostics = null)
-        : base(new SyntaxNode[] { statements, endOfFileToken }, diagnostics)
+    private StatementListSyntax? _statements;
+    private SyntaxToken? _endOfFileToken;
+
+    internal ProgramSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenProgramNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        Statements = statements;
-        EndOfFileToken = endOfFileToken;
     }
 
-    public StatementListSyntax Statements { get; }
-    public SyntaxToken EndOfFileToken { get; }
+    private new GreenProgramNode Green => (GreenProgramNode)base.Green;
+
+    public StatementListSyntax Statements => GetRequiredNode(ref _statements, 0);
+
+    public SyntaxToken EndOfFileToken => GetRequiredToken(ref _endOfFileToken, 1);
 
     public override NodeKind Kind => NodeKind.Program;
 }

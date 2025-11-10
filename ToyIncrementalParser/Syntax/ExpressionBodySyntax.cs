@@ -1,26 +1,23 @@
+using ToyIncrementalParser.Syntax.Green;
+
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class ExpressionBodySyntax : FunctionBodySyntax
 {
-    public ExpressionBodySyntax(
-        SyntaxToken equalsToken,
-        ExpressionSyntax expression,
-        SyntaxToken semicolonToken)
-        : base(new SyntaxNode[]
-        {
-            equalsToken,
-            expression,
-            semicolonToken
-        })
+    private SyntaxToken? _equalsToken;
+    private ExpressionSyntax? _expression;
+    private SyntaxToken? _semicolonToken;
+
+    internal ExpressionBodySyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenExpressionBodyNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        EqualsToken = equalsToken;
-        Expression = expression;
-        SemicolonToken = semicolonToken;
     }
 
-    public SyntaxToken EqualsToken { get; }
-    public ExpressionSyntax Expression { get; }
-    public SyntaxToken SemicolonToken { get; }
+    public SyntaxToken EqualsToken => GetRequiredToken(ref _equalsToken, 0);
+
+    public ExpressionSyntax Expression => GetRequiredNode(ref _expression, 1);
+
+    public SyntaxToken SemicolonToken => GetRequiredToken(ref _semicolonToken, 2);
 
     public override NodeKind Kind => NodeKind.ExpressionBody;
 }

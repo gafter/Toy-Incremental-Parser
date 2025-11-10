@@ -1,52 +1,64 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class SyntaxToken : SyntaxNode
 {
-    public SyntaxToken(
-        NodeKind kind,
-        string text,
-        TextSpan span,
-        IEnumerable<SyntaxTrivia>? leadingTrivia = null,
-        IEnumerable<SyntaxTrivia>? trailingTrivia = null,
-        bool isMissing = false,
-        IEnumerable<Diagnostic>? diagnostics = null)
-        : base(Array.Empty<SyntaxNode>(), diagnostics)
+    private IReadOnlyList<SyntaxTrivia>? _leadingTrivia;
+    private IReadOnlyList<SyntaxTrivia>? _trailingTrivia;
+
+    private SyntaxToken(SyntaxTree syntaxTree, SyntaxNode? parent, GreenToken greenToken, int position)
+        : base(syntaxTree, parent, greenToken, position)
     {
-        Kind = kind;
-        Text = text;
-        IsMissing = isMissing;
-        var leadingArray = (leadingTrivia ?? Array.Empty<SyntaxTrivia>()).ToArray();
-        var trailingArray = (trailingTrivia ?? Array.Empty<SyntaxTrivia>()).ToArray();
-
-        LeadingTrivia = leadingArray;
-        TrailingTrivia = trailingArray;
-
-        var fullStart = leadingArray.Length > 0 ? leadingArray[0].Span.Start : span.Start;
-        var fullEnd = trailingArray.Length > 0 ? trailingArray[^1].Span.End : span.End;
-        if (fullEnd < fullStart)
-            fullEnd = fullStart;
-
-        SetSpans(span, TextSpan.FromBounds(fullStart, fullEnd));
     }
 
-    public override NodeKind Kind { get; }
+    private GreenToken GreenToken => (GreenToken)Green;
 
-    public string Text { get; }
+    public override NodeKind Kind => Green.Kind;
 
-    public bool IsMissing { get; }
+    public override TextSpan Span => new(Position + GreenToken.LeadingWidth, GreenToken.Width);
 
-    public IReadOnlyList<SyntaxTrivia> LeadingTrivia { get; }
+    public string Text => GreenToken.Text;
 
-    public IReadOnlyList<SyntaxTrivia> TrailingTrivia { get; }
+    public bool IsMissing => GreenToken.IsMissing;
+
+    public IReadOnlyList<SyntaxTrivia> LeadingTrivia => _leadingTrivia ??= CreateTriviaList(GreenToken.LeadingTrivia, FullSpan.Start);
+
+    public IReadOnlyList<SyntaxTrivia> TrailingTrivia => _trailingTrivia ??= CreateTriviaList(GreenToken.TrailingTrivia, Span.End);
 
     public override IEnumerable<SyntaxNode> GetChildren() => Array.Empty<SyntaxNode>();
 
-    public bool Equals(SyntaxToken? other) => Equals((SyntaxNode?)other);
-}
+    public override IEnumerable<SyntaxTrivia> GetLeadingTrivia() => LeadingTrivia;
 
+    public override IEnumerable<SyntaxTrivia> GetTrailingTrivia() => TrailingTrivia;
+
+    public override SyntaxToken? GetFirstToken() => this;
+
+    public override SyntaxToken? GetLastToken() => this;
+
+    public bool Equals(SyntaxToken? other) => Equals((SyntaxNode?)other);
+
+    internal static SyntaxToken Create(SyntaxTree syntaxTree, SyntaxNode? parent, GreenToken token, int position) =>
+        new(syntaxTree, parent, token, position);
+
+    private static IReadOnlyList<SyntaxTrivia> CreateTriviaList(GreenTrivia[] trivia, int start)
+    {
+        if (trivia.Length == 0)
+            return Array.Empty<SyntaxTrivia>();
+
+        var result = new SyntaxTrivia[trivia.Length];
+        var position = start;
+
+        for (var i = 0; i < trivia.Length; i++)
+        {
+            var t = trivia[i];
+            result[i] = new SyntaxTrivia(t.Kind, t.Text, new TextSpan(position, t.FullWidth));
+            position += t.FullWidth;
+        }
+
+        return result;
+    }
+}

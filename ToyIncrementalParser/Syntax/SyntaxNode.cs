@@ -1,49 +1,84 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
 
 namespace ToyIncrementalParser.Syntax;
 
 public abstract class SyntaxNode : IEquatable<SyntaxNode>
 {
-    private readonly SyntaxNode[] _children;
-    private readonly Diagnostic[] _diagnostics;
-    protected TextSpan? _span;
-    protected TextSpan? _fullSpan;
+    private SyntaxNode?[]? _children;
+    private IReadOnlyList<SyntaxTrivia>? _leadingTrivia;
+    private IReadOnlyList<SyntaxTrivia>? _trailingTrivia;
 
-    protected SyntaxNode(IEnumerable<SyntaxNode> children, IEnumerable<Diagnostic>? diagnostics = null)
+    internal SyntaxNode(SyntaxTree syntaxTree, SyntaxNode? parent, GreenNode green, int position)
     {
-        _children = children?.ToArray() ?? Array.Empty<SyntaxNode>();
-        _diagnostics = AggregateDiagnostics(_children, diagnostics);
+        SyntaxTree = syntaxTree;
+        Parent = parent;
+        Green = green;
+        Position = position;
     }
+
+    internal GreenNode Green { get; }
+
+    internal SyntaxTree SyntaxTree { get; }
+
+    public SyntaxNode? Parent { get; }
+
+    internal int Position { get; }
 
     public abstract NodeKind Kind { get; }
 
-    public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
+    public IReadOnlyList<Diagnostic> Diagnostics => Green.Diagnostics;
 
-    public virtual IEnumerable<SyntaxNode> GetChildren() => _children;
+    public TextSpan FullSpan => new(Position, Green.FullWidth);
+
+    public virtual TextSpan Span
+    {
+        get
+        {
+            var leading = ComputeLeadingTriviaWidth(Green);
+            var trailing = ComputeTrailingTriviaWidth(Green);
+            var start = Position + leading;
+            var end = Position + Green.FullWidth - trailing;
+            if (end < start)
+                end = start;
+            return TextSpan.FromBounds(start, end);
+        }
+    }
+
+    public virtual IEnumerable<SyntaxNode> GetChildren()
+    {
+        foreach (var child in Children)
+        {
+            if (child is not null)
+                yield return child;
+        }
+    }
 
     public virtual IEnumerable<SyntaxTrivia> GetLeadingTrivia()
     {
-        var firstToken = GetFirstToken();
-        return firstToken?.LeadingTrivia ?? Array.Empty<SyntaxTrivia>();
+        _leadingTrivia ??= ComputeLeadingTrivia();
+        return _leadingTrivia;
     }
 
     public virtual IEnumerable<SyntaxTrivia> GetTrailingTrivia()
     {
-        var lastToken = GetLastToken();
-        return lastToken?.TrailingTrivia ?? Array.Empty<SyntaxTrivia>();
+        _trailingTrivia ??= ComputeTrailingTrivia();
+        return _trailingTrivia;
     }
 
-    public SyntaxToken? GetFirstToken()
+    public virtual SyntaxToken? GetFirstToken()
     {
-        if (this is SyntaxToken token)
-            return token;
-
-        foreach (var child in _children)
+        foreach (var child in Children)
         {
+            if (child is null)
+                continue;
+
+            if (child is SyntaxToken token)
+                return token;
+
             var first = child.GetFirstToken();
             if (first is not null)
                 return first;
@@ -52,24 +87,24 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         return null;
     }
 
-    public SyntaxToken? GetLastToken()
+    public virtual SyntaxToken? GetLastToken()
     {
-        if (this is SyntaxToken token)
-            return token;
-
-        for (var i = _children.Length - 1; i >= 0; i--)
+        for (var i = Children.Length - 1; i >= 0; i--)
         {
-            var last = _children[i].GetLastToken();
+            var child = Children[i];
+            if (child is null)
+                continue;
+
+            if (child is SyntaxToken token)
+                return token;
+
+            var last = child.GetLastToken();
             if (last is not null)
                 return last;
         }
 
         return null;
     }
-
-    public TextSpan Span => _span ??= ComputeSpan(includeTrivia: false);
-
-    public TextSpan FullSpan => _fullSpan ??= ComputeSpan(includeTrivia: true);
 
     public bool Equals(SyntaxNode? other)
     {
@@ -79,128 +114,155 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         if (ReferenceEquals(this, other))
             return true;
 
-        if (GetType() != other.GetType())
-            return false;
-
         if (Kind != other.Kind)
             return false;
 
-        if (Span != other.Span || FullSpan != other.FullSpan)
-            return false;
-
-        if (!DiagnosticsEqual(Diagnostics, other.Diagnostics))
-            return false;
-
-        if (this is SyntaxToken token)
-        {
-            var otherToken = (SyntaxToken)other;
-            return TokenEquals(token, otherToken);
-        }
-
-        var children = GetChildren().ToArray();
-        var otherChildren = other.GetChildren().ToArray();
-
-        if (children.Length != otherChildren.Length)
-            return false;
-
-        for (var i = 0; i < children.Length; i++)
-        {
-            if (!children[i].Equals(otherChildren[i]))
-                return false;
-        }
-
-        return true;
+        return GreenStructuralComparer.Equals(Green, other.Green);
     }
 
     public override bool Equals(object? obj) => obj is SyntaxNode node && Equals(node);
 
-    public override int GetHashCode()
+    public override int GetHashCode() => GreenStructuralComparer.GetHashCode(Green);
+
+    private SyntaxNode?[] Children
     {
-        var hash = new HashCode();
-        hash.Add(Kind);
-        hash.Add(Span.Start);
-        hash.Add(Span.Length);
-        hash.Add(FullSpan.Start);
-        hash.Add(FullSpan.Length);
-        return hash.ToHashCode();
-    }
-
-    private TextSpan ComputeSpan(bool includeTrivia)
-    {
-        var first = GetFirstToken();
-        var last = GetLastToken();
-
-        if (first is null || last is null)
-            return new TextSpan(0, 0);
-
-        var start = includeTrivia ? first.FullSpan.Start : first.Span.Start;
-        var end = includeTrivia ? last.FullSpan.End : last.Span.End;
-
-        return TextSpan.FromBounds(start, end);
-    }
-
-    protected void SetSpans(TextSpan span, TextSpan fullSpan)
-    {
-        _span = span;
-        _fullSpan = fullSpan;
-    }
-
-    private static Diagnostic[] AggregateDiagnostics(IEnumerable<SyntaxNode> children, IEnumerable<Diagnostic>? diagnostics)
-    {
-        var bag = new List<Diagnostic>();
-        if (diagnostics is not null)
-            bag.AddRange(diagnostics);
-
-        foreach (var child in children)
-            bag.AddRange(child.Diagnostics);
-
-        return bag.ToArray();
-    }
-
-    private static bool DiagnosticsEqual(IReadOnlyList<Diagnostic> left, IReadOnlyList<Diagnostic> right)
-    {
-        if (left.Count != right.Count)
-            return false;
-
-        for (var i = 0; i < left.Count; i++)
+        get
         {
-            var l = left[i];
-            var r = right[i];
-            if (l.Severity != r.Severity || l.Message != r.Message || l.Span != r.Span)
-                return false;
+            if (_children is null)
+                _children = CreateChildren();
+            return _children;
+        }
+    }
+
+    protected SyntaxNode? GetChild(int index) => Children[index];
+
+    protected TChild GetRequiredNode<TChild>(ref TChild? cache, int index)
+        where TChild : SyntaxNode
+    {
+        if (cache is null)
+        {
+            var node = Children[index] ?? throw new InvalidOperationException("Expected child node.");
+            cache = (TChild)node;
         }
 
-        return true;
+        return cache;
     }
 
-    private static bool TokenEquals(SyntaxToken left, SyntaxToken right)
+    protected SyntaxToken GetRequiredToken(ref SyntaxToken? cache, int index)
     {
-        if (left.Text != right.Text || left.IsMissing != right.IsMissing)
-            return false;
-
-        if (!TriviaEquals(left.LeadingTrivia, right.LeadingTrivia))
-            return false;
-
-        if (!TriviaEquals(left.TrailingTrivia, right.TrailingTrivia))
-            return false;
-
-        return true;
-    }
-
-    private static bool TriviaEquals(IReadOnlyList<SyntaxTrivia> left, IReadOnlyList<SyntaxTrivia> right)
-    {
-        if (left.Count != right.Count)
-            return false;
-
-        for (var i = 0; i < left.Count; i++)
+        if (cache is null)
         {
-            var l = left[i];
-            var r = right[i];
-            if (l.Kind != r.Kind || l.Text != r.Text || l.Span != r.Span)
-                return false;
+            var node = Children[index] ?? throw new InvalidOperationException("Expected token.");
+            cache = (SyntaxToken)node;
         }
 
-        return true;
+        return cache;
+    }
+
+    protected TChild? GetOptionalNode<TChild>(ref TChild? cache, int index)
+        where TChild : SyntaxNode
+    {
+        if (cache is null)
+        {
+            var node = Children[index];
+            if (node is null)
+                return null;
+
+            cache = (TChild)node;
+        }
+
+        return cache;
+    }
+
+    private SyntaxNode?[] CreateChildren()
+    {
+        var count = Green.SlotCount;
+        if (count == 0)
+            return Array.Empty<SyntaxNode?>();
+
+        var array = new SyntaxNode?[count];
+        var position = Position;
+
+        for (var i = 0; i < count; i++)
+        {
+            var childGreen = Green.GetSlot(i);
+            if (childGreen is null)
+                continue;
+
+            var child = SyntaxNodeFactory.Create(SyntaxTree, this, childGreen, position);
+            array[i] = child;
+            position += childGreen.FullWidth;
+        }
+
+        return array;
+    }
+
+    private IReadOnlyList<SyntaxTrivia> ComputeLeadingTrivia()
+    {
+        var token = GetFirstToken();
+        if (token is null)
+            return Array.Empty<SyntaxTrivia>();
+        return token.LeadingTrivia;
+    }
+
+    private IReadOnlyList<SyntaxTrivia> ComputeTrailingTrivia()
+    {
+        var token = GetLastToken();
+        if (token is null)
+            return Array.Empty<SyntaxTrivia>();
+        return token.TrailingTrivia;
+    }
+
+    private static int ComputeLeadingTriviaWidth(GreenNode node)
+    {
+        var offset = 0;
+
+        for (var i = 0; i < node.SlotCount; i++)
+        {
+            var child = node.GetSlot(i);
+            if (child is null)
+                continue;
+
+            var firstToken = child.GetFirstToken();
+            if (firstToken is null)
+            {
+                offset += child.FullWidth;
+                continue;
+            }
+
+            if (child is GreenToken token)
+                return offset + token.LeadingWidth;
+
+            return offset + ComputeLeadingTriviaWidth(child);
+        }
+
+        return offset;
+    }
+
+    private static int ComputeTrailingTriviaWidth(GreenNode node)
+    {
+        var offset = 0;
+
+        for (var i = node.SlotCount - 1; i >= 0; i--)
+        {
+            var child = node.GetSlot(i);
+            if (child is null)
+                continue;
+
+            var lastToken = child.GetLastToken();
+            if (lastToken is null)
+            {
+                offset += child.FullWidth;
+                continue;
+            }
+
+            if (child is GreenToken token)
+                return offset + token.TrailingWidth;
+
+            return offset + ComputeTrailingTriviaWidth(child);
+        }
+
+        return offset;
     }
 }
 

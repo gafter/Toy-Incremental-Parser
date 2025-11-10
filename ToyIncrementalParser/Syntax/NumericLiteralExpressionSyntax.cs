@@ -1,20 +1,29 @@
-using System;
 using System.Globalization;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class NumericLiteralExpressionSyntax : ExpressionSyntax
 {
-    public NumericLiteralExpressionSyntax(SyntaxToken numberToken)
-        : base(new SyntaxNode[] { numberToken })
+    private SyntaxToken? _numberToken;
+    private double? _value;
+
+    internal NumericLiteralExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenNumericLiteralExpressionNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        NumberToken = numberToken ?? throw new ArgumentNullException(nameof(numberToken));
-        Value = ParseValue(numberToken.Text);
     }
 
-    public SyntaxToken NumberToken { get; }
+    public SyntaxToken NumberToken => GetRequiredToken(ref _numberToken, 0);
 
-    public double Value { get; }
+    public double Value
+    {
+        get
+        {
+            if (_value is null)
+                _value = ParseValue(NumberToken.Text);
+            return _value.Value;
+        }
+    }
 
     public override NodeKind Kind => NodeKind.NumericLiteralExpression;
 

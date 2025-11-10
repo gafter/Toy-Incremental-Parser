@@ -1,20 +1,21 @@
-using System;
 using System.Text;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class StringLiteralExpressionSyntax : ExpressionSyntax
 {
-    public StringLiteralExpressionSyntax(SyntaxToken stringToken)
-        : base(new SyntaxNode[] { stringToken })
+    private SyntaxToken? _stringToken;
+    private string? _value;
+
+    internal StringLiteralExpressionSyntax(SyntaxTree syntaxTree, SyntaxNode? parent, GreenStringLiteralExpressionNode green, int position)
+        : base(syntaxTree, parent, green, position)
     {
-        StringToken = stringToken ?? throw new ArgumentNullException(nameof(stringToken));
-        Value = DecodeValue(stringToken.Text);
     }
 
-    public SyntaxToken StringToken { get; }
+    public SyntaxToken StringToken => GetRequiredToken(ref _stringToken, 0);
 
-    public string Value { get; }
+    public string Value => _value ??= DecodeValue(StringToken.Text);
 
     public override NodeKind Kind => NodeKind.StringLiteralExpression;
 

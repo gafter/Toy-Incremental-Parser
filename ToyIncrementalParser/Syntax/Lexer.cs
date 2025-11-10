@@ -1,10 +1,28 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Text;
+using ToyIncrementalParser.Syntax.Green;
 
 namespace ToyIncrementalParser.Syntax;
+
+internal readonly struct LexedToken
+{
+    public LexedToken(GreenToken token, int fullStart, int spanStart)
+    {
+        Token = token;
+        FullStart = fullStart;
+        SpanStart = spanStart;
+    }
+
+    public GreenToken Token { get; }
+
+    public int FullStart { get; }
+
+    public int SpanStart { get; }
+
+    public int FullEnd => FullStart + Token.FullWidth;
+}
 
 internal sealed class Lexer
 {
@@ -28,7 +46,7 @@ internal sealed class Lexer
     private readonly string _text;
     private readonly int _length;
     private readonly DiagnosticBag _diagnostics = new();
-    private readonly List<SyntaxTrivia> _pendingLeadingTrivia = new();
+    private readonly List<GreenTrivia> _pendingLeadingTrivia = new();
 
     private int _position;
     private int _line;
@@ -43,34 +61,43 @@ internal sealed class Lexer
 
     public IEnumerable<Diagnostic> Diagnostics => _diagnostics;
 
-    public SyntaxToken NextToken()
+    public LexedToken NextToken()
     {
         var leading = _pendingLeadingTrivia.ToArray();
         _pendingLeadingTrivia.Clear();
 
+        var leadingWidth = ComputeTriviaWidth(leading);
+        var spanStart = _position;
+
         if (IsAtEnd)
         {
-            var eofSpan = new TextSpan(_position, 0);
-            return new SyntaxToken(NodeKind.EOFToken, string.Empty, eofSpan, leadingTrivia: leading);
+            var eofToken = new GreenToken(NodeKind.EOFToken, string.Empty, leadingTrivia: leading);
+            var eofFullStart = spanStart - leadingWidth;
+            return new LexedToken(eofToken, eofFullStart, spanStart);
         }
 
-        var tokenStart = _position;
         var diagnostics = new List<Diagnostic>();
         var kind = ScanToken(out var text, diagnostics);
-        var span = new TextSpan(tokenStart, _position - tokenStart);
 
-        var trailing = ScanTrailingTrivia().ToList();
-        if (IsAtEnd && trailing.Count > 0)
+        var trailingList = ScanTrailingTrivia();
+        GreenTrivia[] trailing;
+
+        if (IsAtEnd && trailingList.Count > 0)
         {
-            _pendingLeadingTrivia.AddRange(trailing);
-            trailing.Clear();
+            _pendingLeadingTrivia.AddRange(trailingList);
+            trailing = Array.Empty<GreenTrivia>();
+        }
+        else
+        {
+            trailing = trailingList.ToArray();
+            var upcomingLeading = ScanLeadingTrivia();
+            if (upcomingLeading.Length > 0)
+                _pendingLeadingTrivia.AddRange(upcomingLeading);
         }
 
-        var upcomingLeading = ScanLeadingTrivia();
-        if (upcomingLeading.Length > 0)
-            _pendingLeadingTrivia.AddRange(upcomingLeading);
-
-        return new SyntaxToken(kind, text, span, leadingTrivia: leading, trailingTrivia: trailing, diagnostics: diagnostics);
+        var token = new GreenToken(kind, text, leading, trailing, diagnostics: diagnostics);
+        var fullStart = spanStart - leadingWidth;
+        return new LexedToken(token, fullStart, spanStart);
     }
 
     private NodeKind ScanToken(out string text, IList<Diagnostic> diagnostics)
@@ -252,36 +279,39 @@ internal sealed class Lexer
         return NodeKind.StringToken;
     }
 
-    private IEnumerable<SyntaxTrivia> ScanTrailingTrivia()
+    private List<GreenTrivia> ScanTrailingTrivia()
     {
+        var trivia = new List<GreenTrivia>();
         while (!IsAtEnd)
         {
             var ch = Current;
             if (ch is ' ' or '\t')
             {
                 if (_column == 0)
-                    yield break;
+                    break;
 
-                yield return ScanWhitespaceTrivia();
+                trivia.Add(ScanWhitespaceTrivia());
                 continue;
             }
 
             if (ch == '/' && Peek(1) == '/')
             {
                 if (_column == 0)
-                    yield break;
+                    break;
 
-                yield return ScanCommentTrivia();
-                yield break;
+                trivia.Add(ScanCommentTrivia());
+                break;
             }
 
             break;
         }
+
+        return trivia;
     }
 
-    private SyntaxTrivia[] ScanLeadingTrivia()
+    private GreenTrivia[] ScanLeadingTrivia()
     {
-        var trivia = new List<SyntaxTrivia>();
+        var trivia = new List<GreenTrivia>();
         while (!IsAtEnd)
         {
             var ch = Current;
@@ -315,7 +345,7 @@ internal sealed class Lexer
         return trivia.ToArray();
     }
 
-    private SyntaxTrivia ScanWhitespaceTrivia()
+    private GreenTrivia ScanWhitespaceTrivia()
     {
         var start = _position;
         var containsSpace = false;
@@ -345,17 +375,17 @@ internal sealed class Lexer
             ? NodeKind.MultipleTrivia
             : containsTab ? NodeKind.TabsTrivia : NodeKind.SpacesTrivia;
 
-        return new SyntaxTrivia(kind, text, new TextSpan(start, _position - start));
+        return new GreenTrivia(kind, text);
     }
 
-    private SyntaxTrivia ScanNewlineTrivia()
+    private GreenTrivia ScanNewlineTrivia()
     {
         var start = _position;
         Advance();
-        return new SyntaxTrivia(NodeKind.NewlineTrivia, "\n", new TextSpan(start, 1));
+        return new GreenTrivia(NodeKind.NewlineTrivia, "\n");
     }
 
-    private SyntaxTrivia ScanCommentTrivia()
+    private GreenTrivia ScanCommentTrivia()
     {
         var start = _position;
         Advance(); // first /
@@ -368,7 +398,7 @@ internal sealed class Lexer
             Advance();
 
         var text = _text[start.._position];
-        return new SyntaxTrivia(NodeKind.CommentTrivia, text, new TextSpan(start, _position - start));
+        return new GreenTrivia(NodeKind.CommentTrivia, text);
     }
 
     private char Current => Peek(0);
@@ -399,5 +429,13 @@ internal sealed class Lexer
     }
 
     private bool IsAtEnd => _position >= _length;
+
+    private static int ComputeTriviaWidth(IReadOnlyList<GreenTrivia> trivia)
+    {
+        var width = 0;
+        for (var i = 0; i < trivia.Count; i++)
+            width += trivia[i].FullWidth;
+        return width;
+    }
 }
 
