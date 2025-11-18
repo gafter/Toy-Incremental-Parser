@@ -54,14 +54,13 @@ internal static class GreenStructuralComparer
 
         foreach (var diagnostic in node.Diagnostics)
         {
-            hash.Add(diagnostic.Severity);
             hash.Add(diagnostic.Message);
             hash.Add(diagnostic.Span);
         }
 
         if (node is GreenToken token)
         {
-            hash.Add(token.Text);
+            hash.Add(token.Width);
             hash.Add(token.IsMissing);
 
             foreach (var trivia in token.LeadingTrivia)
@@ -98,7 +97,11 @@ internal static class GreenStructuralComparer
         {
             var l = left[i];
             var r = right[i];
-            if (l.Severity != r.Severity || l.Message != r.Message || l.Span != r.Span)
+            if (l.Message != r.Message)
+                return false;
+            var (lOffset, lLength) = l.Span.GetOffsetAndLength(int.MaxValue);
+            var (rOffset, rLength) = r.Span.GetOffsetAndLength(int.MaxValue);
+            if (lOffset != rOffset || lLength != rLength)
                 return false;
         }
 
@@ -107,7 +110,7 @@ internal static class GreenStructuralComparer
 
     private static bool TokenEquals(GreenToken left, GreenToken right)
     {
-        if (!string.Equals(left.Text, right.Text, StringComparison.Ordinal))
+        if (left.Width != right.Width)
             return false;
 
         if (left.IsMissing != right.IsMissing)
@@ -122,7 +125,7 @@ internal static class GreenStructuralComparer
         return true;
     }
 
-    private static bool TriviaEquals(GreenTrivia[] left, GreenTrivia[] right)
+    internal static bool TriviaEquals(GreenTrivia[] left, GreenTrivia[] right)
     {
         if (left.Length != right.Length)
             return false;

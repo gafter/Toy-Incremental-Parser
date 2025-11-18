@@ -12,7 +12,7 @@ This document captures the surface language that the parser in `ToyIncrementalPa
 
 The language is expression-oriented with statements for printing, returning values, assigning variables, defining functions, and basic control flow.
 
-```
+```antlr
 program
     : statement_list eoftoken
     ;
@@ -149,4 +149,3 @@ While the current milestone is non-incremental, the structure above is chosen to
 - Layer a simple interpreter or evaluator on top of the syntax tree for integration tests.
 
 This document should remain accurate as we evolve the implementation; update it whenever the language or its trivia/error handling rules change.
-

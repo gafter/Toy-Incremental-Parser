@@ -7,18 +7,17 @@ internal sealed class GreenToken : GreenNode
 {
     public GreenToken(
         NodeKind kind,
-        string text,
+        int width,
         IReadOnlyList<GreenTrivia>? leadingTrivia = null,
         IReadOnlyList<GreenTrivia>? trailingTrivia = null,
         bool isMissing = false,
         IReadOnlyList<Diagnostic>? diagnostics = null)
         : base(kind, diagnostics)
     {
-        Text = text;
+        Width = width;
         IsMissing = isMissing;
         LeadingTrivia = ToArray(leadingTrivia);
         TrailingTrivia = ToArray(trailingTrivia);
-        Width = text.Length;
 
         LeadingWidth = ComputeTriviaWidth(LeadingTrivia);
         TrailingWidth = ComputeTriviaWidth(TrailingTrivia);
@@ -26,8 +25,6 @@ internal sealed class GreenToken : GreenNode
     }
 
     public override bool IsToken => true;
-
-    public string Text { get; }
 
     public bool IsMissing { get; }
 

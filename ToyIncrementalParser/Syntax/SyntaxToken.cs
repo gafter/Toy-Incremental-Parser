@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
 
@@ -19,15 +20,32 @@ public sealed class SyntaxToken : SyntaxNode
 
     public override NodeKind Kind => Green.Kind;
 
-    public override TextSpan Span => new(Position + GreenToken.LeadingWidth, GreenToken.Width);
+    public override Range Span => (Position + GreenToken.LeadingWidth)..(Position + GreenToken.LeadingWidth + GreenToken.Width);
 
-    public string Text => GreenToken.Text;
+    public string Text
+    {
+        get
+        {
+            var (offset, length) = Span.GetOffsetAndLength(SyntaxTree.Text.Length);
+            if (SyntaxTree.Text is Rope rope)
+            {
+                return rope.SubText(offset, length).ToString();
+            }
+            // For other IText implementations, build the string character by character
+            var builder = new System.Text.StringBuilder(length);
+            for (int i = 0; i < length; i++)
+            {
+                builder.Append(SyntaxTree.Text[offset + i]);
+            }
+            return builder.ToString();
+        }
+    }
 
     public bool IsMissing => GreenToken.IsMissing;
 
-    public IReadOnlyList<SyntaxTrivia> LeadingTrivia => _leadingTrivia ??= CreateTriviaList(GreenToken.LeadingTrivia, FullSpan.Start);
+    public IReadOnlyList<SyntaxTrivia> LeadingTrivia => _leadingTrivia ??= CreateTriviaList(GreenToken.LeadingTrivia, FullSpan.Start.GetOffset(int.MaxValue));
 
-    public IReadOnlyList<SyntaxTrivia> TrailingTrivia => _trailingTrivia ??= CreateTriviaList(GreenToken.TrailingTrivia, Span.End);
+    public IReadOnlyList<SyntaxTrivia> TrailingTrivia => _trailingTrivia ??= CreateTriviaList(GreenToken.TrailingTrivia, Span.End.GetOffset(int.MaxValue));
 
     public override IEnumerable<SyntaxNode> GetChildren() => Array.Empty<SyntaxNode>();
 
@@ -55,7 +73,7 @@ public sealed class SyntaxToken : SyntaxNode
         for (var i = 0; i < trivia.Length; i++)
         {
             var t = trivia[i];
-            result[i] = new SyntaxTrivia(t.Kind, t.Text, new TextSpan(position, t.FullWidth));
+            result[i] = new SyntaxTrivia(t.Kind, t.Text, position..(position + t.FullWidth));
             position += t.FullWidth;
         }
 

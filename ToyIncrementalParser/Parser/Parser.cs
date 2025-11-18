@@ -2,50 +2,25 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
 
-namespace ToyIncrementalParser.Syntax;
+namespace ToyIncrementalParser.Parser;
 
 public sealed class Parser
 {
-    private readonly TokenInfo[] _tokens;
-    private readonly DiagnosticBag _diagnostics = new();
-    private int _position;
+    private readonly ISymbolStream _stream;
 
-    private readonly struct TokenInfo
+    public Parser(Rope text)
+        : this(new LexingSymbolStream(text))
     {
-        public TokenInfo(GreenToken token, int fullStart, int spanStart)
-        {
-            Token = token;
-            FullStart = fullStart;
-            SpanStart = spanStart;
-        }
-
-        public GreenToken Token { get; }
-        public int FullStart { get; }
-        public int SpanStart { get; }
-        public int FullEnd => FullStart + Token.FullWidth;
     }
 
-    public Parser(string text)
+    internal Parser(ISymbolStream stream)
     {
-        var lexer = new Lexer(text);
-        var tokens = new List<TokenInfo>();
-        LexedToken lexed;
-
-        do
-        {
-            lexed = lexer.NextToken();
-            tokens.Add(new TokenInfo(lexed.Token, lexed.FullStart, lexed.SpanStart));
-        }
-        while (lexed.Token.Kind != NodeKind.EOFToken);
-
-        _tokens = tokens.ToArray();
-        _diagnostics.AddRange(lexer.Diagnostics);
+        _stream = stream;
     }
-
-    public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics.ToList();
 
     internal GreenProgramNode ParseProgram()
     {
@@ -57,13 +32,25 @@ public sealed class Parser
     private GreenStatementListNode ParseStatementList(params NodeKind[] terminators)
     {
         var statements = new List<GreenNode>();
-        while (!IsAtEnd() && !terminators.Contains(Current.Kind))
+        while (true)
         {
-            var statementStart = Current;
+            // Try to reuse a statement first, before checking IsAtEnd() or PeekToken.Kind
+            // This avoids crumbling non-terminals when PeekToken() is called
+            if (TryReuseStatement(out var reused))
+            {
+                statements.Add(reused);
+                continue;
+            }
+
+            // Now check if we're at the end or at a terminator
+            if (IsAtEnd() || terminators.Contains(PeekToken.Kind))
+                break;
+
+            var statementStart = PeekToken;
             var statement = ParseStatement();
             statements.Add(statement);
 
-            if (ReferenceEquals(statementStart, Current))
+            if (ReferenceEquals(statementStart, PeekToken))
                 NextToken();
         }
 
@@ -72,7 +59,10 @@ public sealed class Parser
 
     private GreenNode ParseStatement()
     {
-        return Current.Kind switch
+        if (TryReuseStatement(out var reused))
+            return reused;
+
+        return PeekToken.Kind switch
         {
             NodeKind.PrintToken => ParsePrintStatement(),
             NodeKind.ReturnToken => ParseReturnStatement(),
@@ -93,7 +83,7 @@ public sealed class Parser
         var closeParen = MatchToken(NodeKind.CloseParenToken);
 
         GreenNode body;
-        if (Current.Kind == NodeKind.EqualsToken)
+        if (PeekToken.Kind == NodeKind.EqualsToken)
         {
             var equalsToken = MatchToken(NodeKind.EqualsToken);
             var bodyExpression = ParseExpression();
@@ -164,12 +154,12 @@ public sealed class Parser
         var tokens = new List<GreenToken>();
         var startFull = CurrentFullStart;
 
-        TokenInfo lastTokenInfo = default;
+        SymbolToken lastTokenInfo = default;
         var sawToken = false;
 
-        while (Current.Kind != NodeKind.SemicolonToken &&
-               Current.Kind != NodeKind.EOFToken &&
-               !IsStatementTerminator(Current.Kind))
+        while (PeekToken.Kind != NodeKind.SemicolonToken &&
+               PeekToken.Kind != NodeKind.EOFToken &&
+               !IsStatementTerminator(PeekToken.Kind))
         {
             var info = ConsumeTokenInfo();
             tokens.Add(info.Token);
@@ -177,7 +167,7 @@ public sealed class Parser
             sawToken = true;
         }
 
-        if (Current.Kind == NodeKind.SemicolonToken)
+        if (PeekToken.Kind == NodeKind.SemicolonToken)
         {
             var info = ConsumeTokenInfo();
             tokens.Add(info.Token);
@@ -186,11 +176,13 @@ public sealed class Parser
         }
 
         var endFull = sawToken ? lastTokenInfo.FullEnd : CurrentFullStart;
-        var span = TextSpan.FromBounds(startFull, endFull);
-        var diagnostic = new Diagnostic(DiagnosticSeverity.Error, "Unable to parse statement.", span);
-        _diagnostics.Report(diagnostic);
+        // Make diagnostic relative to the ErrorStatement (startFull is the statement's absolute start)
+        var relativeStart = 0;
+        var relativeEnd = endFull - startFull;
+        var span = relativeStart..relativeEnd;
+        var diagnostic = new Diagnostic("Unable to parse statement.", span);
 
-        return GreenFactory.ErrorStatement(tokens);
+        return GreenFactory.ErrorStatement(tokens, new[] { diagnostic });
     }
 
     private bool IsStatementTerminator(NodeKind kind) =>
@@ -201,12 +193,12 @@ public sealed class Parser
         var identifiers = new List<GreenToken>();
         var separators = new List<GreenToken>();
 
-        if (Current.Kind == terminator)
+        if (PeekToken.Kind == terminator)
             return GreenFactory.IdentifierList(identifiers, separators);
 
         while (true)
         {
-            if (Current.Kind == NodeKind.IdentifierToken)
+            if (PeekToken.Kind == NodeKind.IdentifierToken)
             {
                 identifiers.Add(NextToken());
             }
@@ -215,12 +207,12 @@ public sealed class Parser
                 identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
             }
 
-            if (Current.Kind != NodeKind.CommaToken)
+            if (PeekToken.Kind != NodeKind.CommaToken)
                 break;
 
             separators.Add(MatchToken(NodeKind.CommaToken));
 
-            if (Current.Kind == terminator || Current.Kind == NodeKind.EOFToken)
+            if (PeekToken.Kind == terminator || PeekToken.Kind == NodeKind.EOFToken)
             {
                 identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
                 break;
@@ -235,19 +227,19 @@ public sealed class Parser
         var expressions = new List<GreenNode>();
         var separators = new List<GreenToken>();
 
-        if (Current.Kind == terminator)
+        if (PeekToken.Kind == terminator)
             return GreenFactory.ExpressionList(expressions, separators);
 
         while (true)
         {
             expressions.Add(ParseExpression());
 
-            if (Current.Kind != NodeKind.CommaToken)
+            if (PeekToken.Kind != NodeKind.CommaToken)
                 break;
 
             separators.Add(MatchToken(NodeKind.CommaToken));
 
-            if (Current.Kind == terminator || Current.Kind == NodeKind.EOFToken)
+            if (PeekToken.Kind == terminator || PeekToken.Kind == NodeKind.EOFToken)
             {
                 expressions.Add(GreenFactory.MissingExpression(CreateMissingToken(NodeKind.MissingToken)));
                 break;
@@ -263,7 +255,7 @@ public sealed class Parser
     {
         var left = ParseMultiplicativeExpression();
 
-        while (Current.Kind is NodeKind.PlusToken or NodeKind.MinusToken)
+        while (PeekToken.Kind is NodeKind.PlusToken or NodeKind.MinusToken)
         {
             var operatorToken = NextToken();
             var right = ParseMultiplicativeExpression();
@@ -277,7 +269,7 @@ public sealed class Parser
     {
         var left = ParseUnaryExpression();
 
-        while (Current.Kind is NodeKind.TimesToken or NodeKind.SlashToken)
+        while (PeekToken.Kind is NodeKind.TimesToken or NodeKind.SlashToken)
         {
             var operatorToken = NextToken();
             var right = ParseUnaryExpression();
@@ -289,7 +281,7 @@ public sealed class Parser
 
     private GreenNode ParseUnaryExpression()
     {
-        if (Current.Kind == NodeKind.MinusToken)
+        if (PeekToken.Kind == NodeKind.MinusToken)
         {
             var operatorToken = NextToken();
             var operand = ParseUnaryExpression();
@@ -301,10 +293,21 @@ public sealed class Parser
 
     private GreenNode ParsePrimaryExpression()
     {
-        if (Current.Kind == NodeKind.IdentifierToken && Peek(1).Kind == NodeKind.OpenParenToken)
-            return ParseCallExpression();
+        if (PeekToken.Kind == NodeKind.IdentifierToken)
+        {
+            // Consume the identifier first, then peek at the next token to see if it's a function call
+            var identifierToken = ConsumeTokenInfo();
+            var nextToken = _stream.PeekToken();
+            if (nextToken.Token.Kind == NodeKind.OpenParenToken)
+            {
+                // It's a function call
+                return ParseCallExpression(identifierToken.Token);
+            }
+            // Otherwise, it's a regular identifier expression
+            return GreenFactory.IdentifierExpression(identifierToken.Token);
+        }
 
-        return Current.Kind switch
+        return PeekToken.Kind switch
         {
             NodeKind.IdentifierToken => GreenFactory.IdentifierExpression(NextToken()),
             NodeKind.NumberToken => GreenFactory.NumericLiteralExpression(NextToken()),
@@ -314,9 +317,8 @@ public sealed class Parser
         };
     }
 
-    private GreenNode ParseCallExpression()
+    private GreenNode ParseCallExpression(GreenToken identifier)
     {
-        var identifier = MatchToken(NodeKind.IdentifierToken);
         var openParen = MatchToken(NodeKind.OpenParenToken);
         var arguments = ParseExpressionList(NodeKind.CloseParenToken);
         var closeParen = MatchToken(NodeKind.CloseParenToken);
@@ -333,7 +335,7 @@ public sealed class Parser
 
     private GreenToken MatchToken(NodeKind expected)
     {
-        if (Current.Kind == expected)
+        if (PeekToken.Kind == expected)
             return NextToken();
 
         return CreateMissingToken(expected);
@@ -341,40 +343,79 @@ public sealed class Parser
 
     private GreenToken CreateMissingToken(NodeKind expected)
     {
-        var diagnostic = new Diagnostic(DiagnosticSeverity.Error, $"Expected token '{expected}'.", new TextSpan(CurrentSpanStart, 0));
-        _diagnostics.Report(diagnostic);
+        // Diagnostic should be relative to the token (position 0 for missing tokens)
+        var diagnostic = new Diagnostic($"Expected token '{expected}'.", 0..0);
         return CreateMissingToken(expected, diagnostic);
     }
 
     private GreenToken CreateMissingToken(NodeKind expected, Diagnostic diagnostic)
     {
-        return new GreenToken(expected, string.Empty, diagnostics: new[] { diagnostic }, isMissing: true);
+        return new GreenToken(expected, 0, diagnostics: new[] { diagnostic }, isMissing: true);
     }
 
     private GreenToken NextToken() => ConsumeTokenInfo().Token;
 
-    private TokenInfo ConsumeTokenInfo()
+    private SymbolToken ConsumeTokenInfo()
     {
-        var info = CurrentInfo;
-        _position = Math.Min(_position + 1, _tokens.Length - 1);
-        return info;
+        return _stream.ConsumeToken();
     }
 
-    private GreenToken Peek(int offset) => PeekInfo(offset).Token;
 
-    private TokenInfo CurrentInfo => PeekInfo(0);
+    private SymbolToken CurrentInfo => _stream.PeekToken();
 
-    private TokenInfo PeekInfo(int offset)
-    {
-        var index = Math.Min(_position + offset, _tokens.Length - 1);
-        return _tokens[index];
-    }
-
-    private GreenToken Current => CurrentInfo.Token;
+    private GreenToken PeekToken => CurrentInfo.Token;
 
     private int CurrentSpanStart => CurrentInfo.SpanStart;
 
     private int CurrentFullStart => CurrentInfo.FullStart;
 
-    private bool IsAtEnd() => Current.Kind == NodeKind.EOFToken;
+    private bool IsAtEnd() => PeekToken.Kind == NodeKind.EOFToken;
+
+    private bool TryReuseStatement(out GreenNode statement)
+    {
+        statement = null!;
+
+        // Peek at the top non-terminal to see if it's a statement we can reuse
+        if (_stream.TryPeekNonTerminal(out var kind, out var node))
+        {
+            System.Console.WriteLine($"TryReuseStatement: Found non-terminal {kind} at current position");
+            // Check if it's one of the statement types we can reuse
+            var isStatement = kind switch
+            {
+                NodeKind.PrintStatement => true,
+                NodeKind.ReturnStatement => true,
+                NodeKind.FunctionDefinition => true,
+                NodeKind.AssignmentStatement => true,
+                NodeKind.ConditionalStatement => true,
+                NodeKind.LoopStatement => true,
+                _ => false
+            };
+
+            if (isStatement)
+            {
+                System.Console.WriteLine($"TryReuseStatement: {kind} is a reusable statement type, attempting to take it");
+                // Take the non-terminal (it should match since we just peeked at it)
+                if (_stream.TryTakeNonTerminal(kind, out var reused))
+                {
+                    System.Console.WriteLine($"TryReuseStatement: Successfully reused {kind}");
+                    statement = reused;
+                    return true;
+                }
+                else
+                {
+                    System.Console.WriteLine($"TryReuseStatement: Failed to take {kind} (TryTakeNonTerminal returned false)");
+                }
+            }
+            else
+            {
+                System.Console.WriteLine($"TryReuseStatement: {kind} is not a reusable statement type");
+            }
+        }
+        else
+        {
+            System.Console.WriteLine($"TryReuseStatement: No non-terminal found at current position");
+        }
+
+        return false;
+    }
 }

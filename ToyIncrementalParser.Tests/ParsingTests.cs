@@ -1,6 +1,7 @@
 using System.Linq;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
+using ToyIncrementalParser.Text;
 using Xunit;
 
 namespace ToyIncrementalParser.Tests;
@@ -49,23 +50,27 @@ public class ParsingTests
         const string source = "print x; // trailing comment\n    let y = x;\n";
 
         var tree = SyntaxTree.Parse(source);
-        Assert.Empty(tree.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.Empty(tree.Diagnostics);
 
         var program = tree.Root;
         var print = Assert.IsType<PrintStatementSyntax>(program.Statements.Statements[0]);
         var trailing = print.SemicolonToken.TrailingTrivia.ToList();
-        Assert.Equal(2, trailing.Count);
+        Assert.Equal(3, trailing.Count);
         Assert.Equal(NodeKind.SpacesTrivia, trailing[0].Kind);
         Assert.Equal(NodeKind.CommentTrivia, trailing[1].Kind);
+        Assert.Equal(NodeKind.NewlineTrivia, trailing[2].Kind);
 
         var assignment = Assert.IsType<AssignmentStatementSyntax>(program.Statements.Statements[1]);
         var leading = assignment.LetKeyword.LeadingTrivia.ToList();
         Assert.Single(leading);
         Assert.Equal(NodeKind.SpacesTrivia, leading[0].Kind);
+        // Note: The newline after the comment is trailing trivia of the semicolon (per README rule 3),
+        // not leading trivia of 'let'
 
         var eofLeading = program.EndOfFileToken.LeadingTrivia.ToList();
-        Assert.Single(eofLeading);
-        Assert.Equal(NodeKind.NewlineTrivia, eofLeading[0].Kind);
+        // According to README rule 3, the newline after "let y = x;" is trailing trivia of the semicolon,
+        // not leading trivia of EOF. Rule 4 applies to "empty lines" (additional newlines after the first one).
+        Assert.Empty(eofLeading);
     }
 
     [Fact]
@@ -144,7 +149,7 @@ public class ParsingTests
     public void ParseStringLiteral_ProducesStringLiteralExpression()
     {
         var tree = SyntaxTree.Parse("print \"hi\\n\";");
-        Assert.Empty(tree.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.Empty(tree.Diagnostics);
 
         var statement = Assert.Single(tree.Root.Statements.Statements);
         var print = Assert.IsType<PrintStatementSyntax>(statement);

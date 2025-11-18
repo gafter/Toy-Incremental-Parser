@@ -133,16 +133,30 @@ internal abstract class GreenNode
                 list.Add(diagnostics[i]);
         }
 
+        // Track position within parent (sum of widths of previous children)
+        int childPosition = 0;
         foreach (var child in children)
         {
             if (child is null)
                 continue;
 
+            // Adjust each child diagnostic to be relative to the parent
             foreach (var diagnostic in child.Diagnostics)
             {
                 list ??= new List<Diagnostic>();
-                list.Add(diagnostic);
+                
+                // Diagnostic is relative to child, so add child's position to make it relative to parent
+                var (diagOffset, diagLength) = diagnostic.Span.GetOffsetAndLength(int.MaxValue);
+                var relativeOffset = diagOffset + childPosition;
+                // Ensure non-negative (diagnostics should be within the child, but guard against bugs)
+                if (relativeOffset < 0)
+                    relativeOffset = 0;
+                var relativeSpan = relativeOffset..(relativeOffset + diagLength);
+                list.Add(new Diagnostic(diagnostic.Message, relativeSpan));
             }
+
+            // Advance position by child's full width (including trivia)
+            childPosition += child.FullWidth;
         }
 
         return list is null ? Array.Empty<Diagnostic>() : list.ToArray();

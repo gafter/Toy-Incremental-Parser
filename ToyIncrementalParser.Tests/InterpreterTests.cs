@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using ToyIncrementalParser.Syntax;
+using ToyIncrementalParser.Text;
 using Xunit;
 using InterpreterRuntime = ToyIncrementalParser.Interpreter.Interpreter;
 using ToyValueRuntime = ToyIncrementalParser.Interpreter.ToyValue;

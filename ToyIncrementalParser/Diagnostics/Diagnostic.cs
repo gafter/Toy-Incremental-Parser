@@ -1,20 +1,23 @@
-using ToyIncrementalParser.Text;
+using System;
 
 namespace ToyIncrementalParser.Diagnostics;
 
 public sealed class Diagnostic
 {
-    public Diagnostic(DiagnosticSeverity severity, string message, TextSpan span)
+    public Diagnostic(string message, Range span)
     {
-        Severity = severity;
         Message = message;
         Span = span;
     }
 
-    public DiagnosticSeverity Severity { get; }
     public string Message { get; }
-    public TextSpan Span { get; }
+    public Range Span { get; }
 
-    public override string ToString() => $"{Severity}: {Message} @ {Span}";
+    public override string ToString()
+    {
+        var (offset, length) = Span.GetOffsetAndLength(int.MaxValue);
+        var end = offset + length;
+        return $"Error: {Message} @ [{offset}..{end})";
+    }
 }
 

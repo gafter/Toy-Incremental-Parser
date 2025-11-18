@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ToyIncrementalParser.Diagnostics;
 
 namespace ToyIncrementalParser.Syntax.Green;
 
@@ -58,8 +59,8 @@ internal static class GreenFactory
         GreenToken odKeyword) =>
         new(whileKeyword, condition, doKeyword, body, odKeyword);
 
-    public static GreenErrorStatementNode ErrorStatement(IReadOnlyList<GreenToken> tokens) =>
-        new(tokens);
+    public static GreenErrorStatementNode ErrorStatement(IReadOnlyList<GreenToken> tokens, IReadOnlyList<Diagnostic>? diagnostics = null) =>
+        new(tokens, diagnostics);
 
     public static GreenBinaryExpressionNode BinaryExpression(GreenNode left, GreenToken operatorToken, GreenNode right) =>
         new(left, operatorToken, right);

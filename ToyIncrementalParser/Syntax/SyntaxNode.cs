@@ -32,9 +32,9 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
 
     public IReadOnlyList<Diagnostic> Diagnostics => Green.Diagnostics;
 
-    public TextSpan FullSpan => new(Position, Green.FullWidth);
+    public Range FullSpan => Position..(Position + Green.FullWidth);
 
-    public virtual TextSpan Span
+    public virtual Range Span
     {
         get
         {
@@ -44,7 +44,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
             var end = Position + Green.FullWidth - trailing;
             if (end < start)
                 end = start;
-            return TextSpan.FromBounds(start, end);
+            return start..end;
         }
     }
 
@@ -117,7 +117,67 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         if (Kind != other.Kind)
             return false;
 
-        return GreenStructuralComparer.Equals(Green, other.Green);
+        // For tokens, compare text from source since green tokens don't store text
+        if (this is SyntaxToken thisToken && other is SyntaxToken otherToken)
+        {
+            var (thisOffset, thisLength) = thisToken.Span.GetOffsetAndLength(int.MaxValue);
+            var (otherOffset, otherLength) = otherToken.Span.GetOffsetAndLength(int.MaxValue);
+            if (thisLength != otherLength)
+                return false;
+            if (thisToken.IsMissing != otherToken.IsMissing)
+                return false;
+            var thisGreen = (GreenToken)this.Green;
+            var otherGreen = (GreenToken)other.Green;
+            if (!GreenStructuralComparer.TriviaEquals(thisGreen.LeadingTrivia, otherGreen.LeadingTrivia))
+                return false;
+            if (!GreenStructuralComparer.TriviaEquals(thisGreen.TrailingTrivia, otherGreen.TrailingTrivia))
+                return false;
+            return string.Equals(thisToken.Text, otherToken.Text, StringComparison.Ordinal);
+        }
+
+        // For non-token nodes, compare children recursively
+        var thisChildren = GetChildren().GetEnumerator();
+        var otherChildren = other.GetChildren().GetEnumerator();
+        
+        while (true)
+        {
+            var thisHasNext = thisChildren.MoveNext();
+            var otherHasNext = otherChildren.MoveNext();
+            
+            if (thisHasNext != otherHasNext)
+                return false;
+            
+            if (!thisHasNext)
+                break;
+            
+            if (thisChildren.Current is null || otherChildren.Current is null)
+            {
+                if (!(thisChildren.Current is null && otherChildren.Current is null))
+                    return false;
+                continue;
+            }
+            
+            if (!thisChildren.Current.Equals(otherChildren.Current))
+                return false;
+        }
+        
+        // Also compare diagnostics
+        if (Diagnostics.Count != other.Diagnostics.Count)
+            return false;
+        
+        for (var i = 0; i < Diagnostics.Count; i++)
+        {
+            var thisDiag = Diagnostics[i];
+            var otherDiag = other.Diagnostics[i];
+            if (thisDiag.Message != otherDiag.Message)
+                return false;
+            var (thisOffset, thisLength) = thisDiag.Span.GetOffsetAndLength(int.MaxValue);
+            var (otherOffset, otherLength) = otherDiag.Span.GetOffsetAndLength(int.MaxValue);
+            if (thisOffset != otherOffset || thisLength != otherLength)
+                return false;
+        }
+        
+        return true;
     }
 
     public override bool Equals(object? obj) => obj is SyntaxNode node && Equals(node);
