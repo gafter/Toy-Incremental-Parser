@@ -33,6 +33,81 @@ public sealed class DebugIncrementalTests
             suffix: "d\nod");
     }
 
+    [Fact(Skip = "Failing - tree equivalence issue with ErrorStatement and missing FiToken")]
+    public void Minimal_FromSeed7Budget1()
+    {
+        // Minimal test case extracted from WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(seed: 7, budget: 1)
+        // This test case fails due to tree equivalence issues
+        const string commonPrefix = "	if r9w//w uw7\n then print 0;\n//sh10\n//yr0y\n\nelse print//wx\n 0//rs m c\n;//v ";
+        const string deletedText = "qy0cl\n\nfi//p53m2ez";
+        const string insertedText = "print//wx\n 0//rs m ";
+        const string commonSuffix = " do5c";
+
+        var (originalTree, incrementalTree) = IncrementalParsingTests.TestIncrementalChange(commonPrefix, deletedText, insertedText, commonSuffix);
+
+        // The test should pass if trees are equivalent
+        // If it fails, the error will show the tree differences
+    }
+
+    [Fact]
+    public void Debug_Particular_InvalidProgram_ShowTrees()
+    {
+        // This test case was failing: seed=3, budget=1
+        // It prints both trees to help diagnose the difference
+        var random = new Random(7);
+        var originalText = IncrementalParsingTests.GenerateErroneousProgram(random, 1);
+        var deletedSpan = IncrementalParsingTests.RandomNonEmptySpan(random, originalText.Length);
+        var insertedSpan = IncrementalParsingTests.RandomNonEmptySpan(random, originalText.Length);
+        Rope replacementRope = originalText[insertedSpan];
+        
+        // Compute prefix, deleted, inserted, and suffix BEFORE parsing (so we see it even if parsing fails)
+        var (targetOffset, targetLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
+        var prefix = originalText[..targetOffset];
+        var deleted = originalText[targetOffset..(targetOffset + targetLength)];
+        var suffix = originalText[(targetOffset + targetLength)..];
+        Console.WriteLine("=== BREAKDOWN ===");
+        Console.WriteLine($"Prefix: \"{prefix}\" (length={prefix.Length})");
+        Console.WriteLine($"Deleted: \"{deleted}\" (length={deleted.Length})");
+        Console.WriteLine($"Inserted: \"{replacementRope}\" (length={replacementRope.Length})");
+        Console.WriteLine($"Suffix: \"{suffix}\" (length={suffix.Length})");
+        Console.WriteLine();
+        
+        var originalTree = SyntaxTree.Parse(originalText);
+        var change = new TextChange(deletedSpan, replacementRope.Length);
+        var incrementalTree = originalTree.WithChange(change, replacementRope);
+
+        Rope editedRope = change.ApplyTo(originalText, replacementRope);
+        var reparsedTree = SyntaxTree.Parse(editedRope);
+
+        // Print both trees
+        var reparsedTreeOutput = TreePrinter.PrintTree(reparsedTree);
+        var incrementalTreeOutput = TreePrinter.PrintTree(incrementalTree);
+
+        // Write to console for debugging
+        Console.WriteLine("=== REPARSED TREE ===");
+        Console.WriteLine(reparsedTreeOutput);
+        Console.WriteLine();
+        Console.WriteLine("=== INCREMENTAL TREE ===");
+        Console.WriteLine(incrementalTreeOutput);
+        Console.WriteLine();
+        Console.WriteLine("=== ORIGINAL TEXT ===");
+        Console.WriteLine($"Length: {originalText.Length}");
+        Console.WriteLine($"Text: {originalText}");
+        Console.WriteLine();
+        Console.WriteLine("=== CHANGE ===");
+        var (sourceOffset, sourceLength) = insertedSpan.GetOffsetAndLength(originalText.Length);
+        Console.WriteLine($"Deleted span: {deletedSpan} (offset={targetOffset}, length={targetLength})");
+        Console.WriteLine($"Inserted span: {insertedSpan} (offset={sourceOffset}, length={sourceLength})");
+        Console.WriteLine($"Replacement text: {replacementRope}");
+        Console.WriteLine();
+        Console.WriteLine("=== EDITED TEXT ===");
+        Console.WriteLine($"Length: {editedRope.Length}");
+        Console.WriteLine($"Text: {editedRope}");
+
+        // Also assert to see the actual failure
+        IncrementalParsingTests.AssertTreesEquivalent(reparsedTree, incrementalTree);
+    }
+
     private static void TestIncrementalChange(Rope prefix, Rope oldMiddle, Rope newMiddle, Rope suffix)
     {
         var oldText = prefix + oldMiddle + suffix;

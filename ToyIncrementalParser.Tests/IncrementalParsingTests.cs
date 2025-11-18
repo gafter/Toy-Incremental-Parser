@@ -142,7 +142,7 @@ public sealed class IncrementalParsingTests
         CheckParticularCase(originalText, deletedSpan, insertedSpan, replacementRope, caseIdentifier);
     }
 
-    private Rope GenerateErroneousProgram(Random random, int budget)
+    internal static Rope GenerateErroneousProgram(Random random, int budget)
     {
         Rope originalText = GenerateRandomProgram(random, budget);
         var deletedSpan = RandomNonEmptySpan(random, originalText.Length);
@@ -174,65 +174,6 @@ public sealed class IncrementalParsingTests
                 WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram(seed, budget);
             }
         }
-    }
-
-    [Fact]
-    public void Debug_Particular_InvalidProgram_ShowTrees()
-    {
-        // This test case was failing: seed=3, budget=1
-        // It prints both trees to help diagnose the difference
-        var random = new Random(7);
-        var originalText = GenerateErroneousProgram(random, 1);
-        var deletedSpan = RandomNonEmptySpan(random, originalText.Length);
-        var insertedSpan = RandomNonEmptySpan(random, originalText.Length);
-        Rope replacementRope = originalText[insertedSpan];
-        
-        // Compute prefix, deleted, inserted, and suffix BEFORE parsing (so we see it even if parsing fails)
-        var (targetOffset, targetLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
-        var prefix = originalText[..targetOffset];
-        var deleted = originalText[targetOffset..(targetOffset + targetLength)];
-        var suffix = originalText[(targetOffset + targetLength)..];
-        Console.WriteLine("=== BREAKDOWN ===");
-        Console.WriteLine($"Prefix: \"{prefix}\" (length={prefix.Length})");
-        Console.WriteLine($"Deleted: \"{deleted}\" (length={deleted.Length})");
-        Console.WriteLine($"Inserted: \"{replacementRope}\" (length={replacementRope.Length})");
-        Console.WriteLine($"Suffix: \"{suffix}\" (length={suffix.Length})");
-        Console.WriteLine();
-        
-        var originalTree = SyntaxTree.Parse(originalText);
-        var change = new TextChange(deletedSpan, replacementRope.Length);
-        var incrementalTree = originalTree.WithChange(change, replacementRope);
-
-        Rope editedRope = change.ApplyTo(originalText, replacementRope);
-        var reparsedTree = SyntaxTree.Parse(editedRope);
-
-        // Print both trees
-        var reparsedTreeOutput = TreePrinter.PrintTree(reparsedTree);
-        var incrementalTreeOutput = TreePrinter.PrintTree(incrementalTree);
-
-        // Write to console for debugging
-        Console.WriteLine("=== REPARSED TREE ===");
-        Console.WriteLine(reparsedTreeOutput);
-        Console.WriteLine();
-        Console.WriteLine("=== INCREMENTAL TREE ===");
-        Console.WriteLine(incrementalTreeOutput);
-        Console.WriteLine();
-        Console.WriteLine("=== ORIGINAL TEXT ===");
-        Console.WriteLine($"Length: {originalText.Length}");
-        Console.WriteLine($"Text: {originalText}");
-        Console.WriteLine();
-        Console.WriteLine("=== CHANGE ===");
-        var (sourceOffset, sourceLength) = insertedSpan.GetOffsetAndLength(originalText.Length);
-        Console.WriteLine($"Deleted span: {deletedSpan} (offset={targetOffset}, length={targetLength})");
-        Console.WriteLine($"Inserted span: {insertedSpan} (offset={sourceOffset}, length={sourceLength})");
-        Console.WriteLine($"Replacement text: {replacementRope}");
-        Console.WriteLine();
-        Console.WriteLine("=== EDITED TEXT ===");
-        Console.WriteLine($"Length: {editedRope.Length}");
-        Console.WriteLine($"Text: {editedRope}");
-
-        // Also assert to see the actual failure
-        AssertTreesEquivalent(reparsedTree, incrementalTree);
     }
 
     [Fact]
@@ -312,22 +253,6 @@ public sealed class IncrementalParsingTests
         // Both statements are at change boundaries and are crumbled, so they won't be reused
         Assert.NotSame(((SyntaxNode)originalStatements[0]).Green, ((SyntaxNode)incrementalStatements[0]).Green);
         Assert.NotSame(((SyntaxNode)originalStatements[2]).Green, ((SyntaxNode)incrementalStatements[1]).Green);
-    }
-
-    [Fact(Skip = "Failing - tree equivalence issue with ErrorStatement and missing FiToken")]
-    public void Minimal_FromSeed7Budget1()
-    {
-        // Minimal test case extracted from WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(seed: 7, budget: 1)
-        // This test case fails due to tree equivalence issues
-        const string commonPrefix = "	if r9w//w uw7\n then print 0;\n//sh10\n//yr0y\n\nelse print//wx\n 0//rs m c\n;//v ";
-        const string deletedText = "qy0cl\n\nfi//p53m2ez";
-        const string insertedText = "print//wx\n 0//rs m ";
-        const string commonSuffix = " do5c";
-
-        var (originalTree, incrementalTree) = TestIncrementalChange(commonPrefix, deletedText, insertedText, commonSuffix);
-
-        // The test should pass if trees are equivalent
-        // If it fails, the error will show the tree differences
     }
 
     [Fact]
@@ -422,7 +347,7 @@ public sealed class IncrementalParsingTests
         return (originalTree, incrementalTree);
     }
 
-    private static void AssertTreesEquivalent(SyntaxTree expected, SyntaxTree actual)
+    internal static void AssertTreesEquivalent(SyntaxTree expected, SyntaxTree actual)
     {
         Assert.Equal(expected.Text.ToString(), actual.Text.ToString());
         if (!actual.Root.Equals(expected.Root))
@@ -513,7 +438,7 @@ public sealed class IncrementalParsingTests
         }
     }
 
-    private static string GenerateRandomProgram(Random random, int budget)
+    internal static string GenerateRandomProgram(Random random, int budget)
     {
         var builder = new StringBuilder();
         var remainingBudget = budget;
@@ -969,7 +894,7 @@ public sealed class IncrementalParsingTests
         return builder.ToString();
     }
 
-    private static Range RandomNonEmptySpan(Random random, int textLength)
+    internal static Range RandomNonEmptySpan(Random random, int textLength)
     {
         if (textLength <= 0)
             return 0..0;
