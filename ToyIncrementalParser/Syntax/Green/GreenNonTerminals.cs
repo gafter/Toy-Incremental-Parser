@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ToyIncrementalParser.Diagnostics;
 
 namespace ToyIncrementalParser.Syntax.Green;
 
@@ -211,8 +212,8 @@ internal sealed class GreenLoopStatementNode : GreenInternalNode
 
 internal sealed class GreenErrorStatementNode : GreenInternalNode
 {
-    public GreenErrorStatementNode(IReadOnlyList<GreenToken> tokens)
-        : base(NodeKind.ErrorStatement, BuildChildren(tokens))
+    public GreenErrorStatementNode(IReadOnlyList<GreenToken> tokens, IReadOnlyList<Diagnostic>? diagnostics = null)
+        : base(NodeKind.ErrorStatement, BuildChildren(tokens), diagnostics)
     {
         Tokens = ToArray(tokens);
     }

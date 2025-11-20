@@ -1,10 +1,10 @@
-using ToyIncrementalParser.Text;
+using System;
 
 namespace ToyIncrementalParser.Syntax;
 
 public sealed class SyntaxTrivia
 {
-    public SyntaxTrivia(NodeKind kind, string text, TextSpan span)
+    public SyntaxTrivia(NodeKind kind, string text, Range span)
     {
         Kind = kind;
         Text = text;
@@ -13,7 +13,7 @@ public sealed class SyntaxTrivia
 
     public NodeKind Kind { get; }
     public string Text { get; }
-    public TextSpan Span { get; }
+    public Range Span { get; }
 
     public override string ToString() => Text;
 }

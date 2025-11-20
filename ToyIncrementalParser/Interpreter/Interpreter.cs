@@ -11,16 +11,14 @@ public sealed class Interpreter
 {
     public ToyValue Execute(SyntaxTree tree, TextWriter? output = null)
     {
-        if (tree is null)
-            throw new ArgumentNullException(nameof(tree));
+        ArgumentNullException.ThrowIfNull(tree);
 
-        return ExecuteInternal(tree.Root, tree.Text, output ?? TextWriter.Null);
+        return ExecuteInternal(tree.Root, tree.Text.ToString()!, output ?? TextWriter.Null);
     }
 
     public ToyValue Execute(ProgramSyntax program, TextWriter? output = null)
     {
-        if (program is null)
-            throw new ArgumentNullException(nameof(program));
+        ArgumentNullException.ThrowIfNull(program);
 
         var text = ReconstructText(program);
         return ExecuteInternal(program, text, output ?? TextWriter.Null);
@@ -307,10 +305,10 @@ public sealed class Interpreter
         public TextWriter Output { get; }
 
         public InvalidOperationException RuntimeError(SyntaxNode node, string message) =>
-            RuntimeError(node.Span.Start, message);
+            RuntimeError(node.Span.Start.GetOffset(int.MaxValue), message);
 
         public InvalidOperationException RuntimeError(SyntaxToken token, string message) =>
-            RuntimeError(token.Span.Start, message);
+            RuntimeError(token.Span.Start.GetOffset(int.MaxValue), message);
 
         private InvalidOperationException RuntimeError(int position, string message)
         {
