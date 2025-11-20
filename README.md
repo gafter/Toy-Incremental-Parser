@@ -1,23 +1,29 @@
 # Toy Incremental Parser
 
-This repository contains a toy recursive-descent parser for the language sketched in [issue #1](https://github.com/gafter/Toy-Incremental-Parser/issues/1). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified.
+This repository contains a toy recursive-descent parser and interpreter for the language sketched in [issue #1](https://github.com/gafter/Toy-Incremental-Parser/issues/1). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified. The interpreter executes programs with support for functions, variables, control flow, and runtime error handling.
 
 ## Project Layout
 
-- `ToyIncrementalParser/` – main library with syntax tree types, lexer, and parser.
-- `ToyIncrementalParser.Tests/` – xUnit tests that exercise successful parses, trivia handling, basic error recovery, and incremental parsing.
+- `ToyIncrementalParser/` – main library with syntax tree types, lexer, parser, and interpreter.
+  - `Syntax/` – syntax tree nodes (red and green), including full-fidelity parse tree with trivia
+  - `Parser/` – lexer, parser, and incremental parsing blender (`IncrementalSymbolStream`)
+  - `Interpreter/` – runtime interpreter that executes parsed programs
+  - `Text/` – text representation and change tracking (`Rope`, `TextChange`)
+- `ToyIncrementalParser.Tests/` – xUnit test suite (67+ tests) covering parsing, lexing, incremental parsing, interpreter execution, and text operations.
 - `Language.md` – reference document describing the grammar, tokens, trivia rules, and error handling.
 
 See `Language.md` for the complete grammar, token descriptions, trivia handling rules, and error-recovery strategy.
 
 ## Building and Testing
 
-Run the following commands from the repository root (set `DOTNET_ROOT`/`PATH` if necessary):
+This project targets .NET 8.0. Run the following commands from the repository root (set `DOTNET_ROOT`/`PATH` if necessary):
 
 ```bash
 dotnet build
 dotnet test
 ```
+
+The test suite includes comprehensive coverage of parsing, incremental parsing, interpreter execution, error recovery, and edge cases.
 
 ## Incremental Parsing Architecture
 
@@ -104,7 +110,13 @@ The `Lexer` reads characters from an `ICharacterSource` (the blender) rather tha
 - ✅ **Symbol reuse**: Parser can request nonterminals (statements, statement lists) for reuse
 - ✅ **Non-incremental parser**: Full parser with red tree nodes, spans, trivia, and diagnostics aggregation
 - ✅ **Error recovery**: Inserted (missing) tokens and error statements
-- ✅ **Comprehensive tests**: Tests for statements, expressions, trivia, missing-token diagnostics, and incremental parsing scenarios
+- ✅ **Interpreter**: Complete runtime interpreter supporting:
+  - Variable assignment and scoping
+  - Function definitions (with closures) and calls
+  - Control flow (conditionals, loops)
+  - Arithmetic and string operations
+  - Runtime error handling (division by zero, undefined variables, arity mismatches)
+- ✅ **Comprehensive tests**: 67+ tests covering parsing, lexing, incremental parsing, interpreter execution, trivia handling, error recovery, and edge cases
 
 ### Implementation Notes
 
