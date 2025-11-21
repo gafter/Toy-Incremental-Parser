@@ -234,7 +234,9 @@ public sealed class Parser
 
             if (PeekToken.Kind == terminator || PeekToken.Kind == NodeKind.EOFToken)
             {
-                identifiers.Add(MatchToken(NodeKind.IdentifierToken));
+                // Use CreateMissingToken instead of MatchToken to avoid consuming the terminator
+                // The terminator needs to remain available for the caller to match
+                identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
                 break;
             }
         }

@@ -171,6 +171,25 @@ public class ParsingTests
     }
 
     [Fact]
+    public void IdentifierList_WithTrailingComma_CreatesMissingIdentifier()
+    {
+        const string source = "define f(x,) = 0;";
+
+        var tree = SyntaxTree.Parse(source);
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var function = Assert.IsType<FunctionDefinitionSyntax>(statement);
+
+        // Should have 2 identifiers (x and missing)
+        Assert.Equal(2, function.Parameters.Identifiers.Count);
+        Assert.Equal("x", function.Parameters.Identifiers[0].Text);
+        Assert.True(function.Parameters.Identifiers[1].IsMissing);
+        
+        // The close paren should still be present (not consumed as unexpected trivia)
+        Assert.Equal(")", function.CloseParenToken.Text);
+        Assert.False(function.CloseParenToken.IsMissing);
+    }
+
+    [Fact]
     public void ExpressionList_WithTrailingComma_CreatesMissingExpression()
     {
         const string source = "print f(x,);";
