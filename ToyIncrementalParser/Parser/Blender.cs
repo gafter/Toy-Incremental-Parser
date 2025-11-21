@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Security.Authentication.ExtendedProtection;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
@@ -14,6 +15,7 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
 {
     private readonly IText _newText;
     private readonly Stack<SymbolEntry> _symbolStack = new();
+    private readonly BlenderCharacterSource _characterSource;
 
     // _currentPosition is the position in the new text for the lexer, as represented by the symbol stack.
     // It ignores _pendingToken.
@@ -25,13 +27,12 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
     {
         _newText = newText;
         _currentPosition = 0;
+        _characterSource = new BlenderCharacterSource(this);
         BuildInitialStack(oldRoot, newText, change);
         
         // After building the initial stack, verify synchronization
         if (_symbolStack.Count > 0)
         {
-            var top = _symbolStack.Peek();
-            System.Console.WriteLine($"[Blender constructor] After BuildInitialStack: stackCount={_symbolStack.Count}, _currentPosition={_currentPosition}, top={(top.IsText ? $"Text {top.TextStart}..{top.TextEnd}" : $"{top.Node.Kind} at {top.NewStart}")}");
         }
         AssertPositionSynchronized("Blender constructor (after BuildInitialStack)");
     }
@@ -44,7 +45,6 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         }
         
         var token = _pendingToken!.Value;
-        System.Console.WriteLine($"[PeekToken] {token.Token.Kind} at {token.FullStart}..{token.FullEnd}, position={_currentPosition}");
         return token;
     }
 
@@ -57,8 +57,6 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         
         var token = _pendingToken!.Value;
         _pendingToken = null;
-        
-        System.Console.WriteLine($"[ConsumeToken] {token.Token.Kind} at {token.FullStart}..{token.FullEnd}, position={_currentPosition} (after consume)");
         
         // After consuming token, verify synchronization with next symbol (if any)
         AssertPositionSynchronized("ConsumeToken (after consuming)");
@@ -89,27 +87,37 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         kind = default;
         node = null!;
 
-        // If there's a pending token, we can't peek a non-terminal
-        if (_pendingToken != null || _symbolStack.Count == 0)
+        while (true)
         {
-            return false;
+            // If there's a pending token, we can't peek a non-terminal
+            if (_pendingToken != null || _symbolStack.Count == 0)
+            {
+                return false;
+            }
+
+            var top = _symbolStack.Peek();
+
+            if (top.IsText || top.Node is GreenToken)
+            {
+                return false;
+            }
+
+            // The head of the stack should always be synchronized with _currentPosition
+            // If it isn't, that's a bug
+            AssertPositionSynchronized("TryPeekNonTerminal");
+
+            // If the non-terminal contains diagnostics, crumble it and try again
+            if (top.Node.ContainsDiagnostics)
+            {
+                CrumbleTopSymbol();
+                continue;
+            }
+
+            // Found a synchronized non-terminal without diagnostics
+            kind = top.Node.Kind;
+            node = top.Node;
+            return true;
         }
-
-        var top = _symbolStack.Peek();
-
-        if (top.IsText || top.Node is GreenToken)
-        {
-            return false;
-        }
-
-        // The head of the stack should always be synchronized with _currentPosition
-        // If it isn't, that's a bug
-        AssertPositionSynchronized("TryPeekNonTerminal");
-
-        // Found a synchronized non-terminal
-        kind = top.Node.Kind;
-        node = top.Node;
-        return true;
     }
 
     public bool TryTakeNonTerminal(NodeKind kind, out GreenNode node)
@@ -154,7 +162,8 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         }
     }
 
-    char ICharacterSource.PeekCharacter()
+    // Core character access methods used by BlenderCharacterSource
+    internal char PeekCharacterCore()
     {
         EnsureCharacterAvailable();
         if (_currentPosition >= _newText.Length)
@@ -170,56 +179,40 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         return _newText[_currentPosition];
     }
 
-    char ICharacterSource.ConsumeCharacter()
+    internal char ConsumeCharacterCore()
     {
-        var ch = ((ICharacterSource)this).PeekCharacter();
+        var ch = PeekCharacterCore();
         _currentPosition++;
         return ch;
     }
 
-    void ICharacterSource.PushBack(char ch)
-    {
-        if (_currentPosition <= 0)
-            throw new InvalidOperationException("Cannot push back at the beginning of the text.");
+    internal int CurrentPositionCore => _currentPosition;
 
-        var previousChar = _newText[_currentPosition - 1];
-        if (previousChar != ch)
-            throw new InvalidOperationException($"Cannot push back character '{ch}'; expected '{previousChar}' at position {_currentPosition - 1}.");
-
-        _currentPosition--;
-        
-        // After pushing back, if there's a text segment on the stack, ensure we're still within its bounds
-        if (_symbolStack.Count > 0)
-        {
-            var top = _symbolStack.Peek();
-            if (top.IsText)
-            {
-                if (_currentPosition < top.TextStart || _currentPosition >= top.TextEnd)
-                {
-                    throw new InvalidOperationException(
-                        $"After pushing back, current position {_currentPosition} is outside text segment {top.TextStart}..{top.TextEnd}.");
-                }
-            }
-        }
-    }
-
-    int ICharacterSource.CurrentPosition => _currentPosition;
+    // ICharacterSource implementation delegates to the wrapper
+    char ICharacterSource.PeekCharacter() => _characterSource.PeekCharacter();
+    char ICharacterSource.ConsumeCharacter() => _characterSource.ConsumeCharacter();
+    void ICharacterSource.PushBack(char ch) => _characterSource.PushBack(ch);
+    int ICharacterSource.CurrentPosition => _characterSource.CurrentPosition;
 
     private void BuildInitialStack(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
-        // Extract change boundaries
-        var (originalChangeStart, oldChangeLength) = change.Span.GetOffsetAndLength(int.MaxValue);
-        var originalNewChangeLength = change.NewLength;
-        var changeStart = originalChangeStart;
-        var changeEnd = changeStart + oldChangeLength;
+        // We build the initial work stack by processing the old program from left to right using a work stack.
+        // We push nodes onto the left stack until we hit an overlap with the change (leaving the left stack in reverse order).
+        // Then we remove nodes that are entirely inside the change from the work stack and discard them.
+        // Finally, we produce the work stack by combining the left stack, the text segment, and the remaining work stack.
 
-        // Work queue and left stack
-        var workStack = new Stack<(GreenNode node, int oldPosition)>();
+        var (deletedStart, deletedLength) = change.Span.GetOffsetAndLength(int.MaxValue);
+        var deletedEnd = deletedStart + deletedLength;
+        var delta = change.NewLength - deletedLength; // the amount the text has increased by
+
+        // These are the bounds of the text segment in newText coordinates.
+        // We discard tokens that overlap the change and extend the change span to include them.
+        var newSpanStart = deletedStart;
+        var newSpanEnd = deletedEnd + delta;
+
         var leftStack = new Stack<SymbolEntry>();
-        var leftStackEndPosition = 0; // Track the end position of the left stack in NEW text coordinates
-        var discardedSize = 0; // Track the total size of symbols discarded (entirely inside the change)
-        var crumbledBoundaryEnd = 0; // Track the end position of crumbled tokens at the boundary (in NEW text coordinates)
-        
+        var leftStackEndPosition = 0;
+
         // Helper function to push onto left stack and update position
         void PushToLeftStack(SymbolEntry entry)
         {
@@ -235,126 +228,117 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
             leftStack.Push(entry);
             leftStackEndPosition += entry.Node.FullWidth;
         }
-        
+
+        var workStack = new Stack<(GreenNode node, int oldPosition)>();
         workStack.Push((oldRoot, 0));
 
-        // First loop: process left-to-right until we hit overlap or everything is after
-        while (workStack.Count > 0)
+        while (workStack.TryPop(out var item))
         {
-            var (node, oldPosition) = workStack.Peek();
-            var oldEnd = oldPosition + node.FullWidth;
+            var (node, oldPosition) = item;
 
-            // (1) Check if entirely before change (with 2-char lookahead buffer)
-            if ((oldEnd + 2) <= changeStart)
+            if (node.FullWidth == 0)
+                continue;
+
+            var oldEnd = oldPosition + node.FullWidth;
+            
+            if ((oldEnd+2) <= deletedStart)
             {
-                workStack.Pop();
-                // Symbols entirely before the change keep their positions (change is after them)
-                var entry = new SymbolEntry(node, oldPosition);
-                PushToLeftStack(entry);
-                System.Console.WriteLine($"[BuildInitialStack] Added to leftStack: {node.Kind} at {oldPosition}..{oldEnd} (entirely before change at {changeStart}, condition: {oldEnd}+2={oldEnd+2} <= {changeStart}), leftStackEndPosition={leftStackEndPosition}");
+                // Preserve text to the left of the change on the left stack
+                Debug.Assert(leftStackEndPosition == oldPosition);
+                PushToLeftStack(new SymbolEntry(node, oldPosition));
                 continue;
             }
 
-            // (2) Check if entirely after change - exit loop.
-            // Note: Tokens starting exactly at changeEnd should be crumbled (not added to right stack)
-            // because they might affect scanning of the previous token (e.g., trailing trivia)
-            if (oldPosition > changeEnd)
+            if (oldPosition > deletedEnd)
             {
+                // Preserve text to the right of the change
+                workStack.Push((node, oldPosition));
                 break;
             }
 
-            // (3) Overlap case: symbolPosition < changeEnd && symbolEnd+2 > changePosition
-            // OR symbol starts exactly at changeEnd (needs to be crumbled for scanning)
-            workStack.Pop();
-
-            if (node is GreenToken)
+            // There is an overlap.
+            if (node.IsToken)
             {
-                // Token overlapping or starting at boundary - include it in the text segment (it will be rescanned)
-                discardedSize += node.FullWidth;
-                // Track the end position of tokens crumbled at the boundary (in NEW text coordinates)
-                if (oldPosition >= changeEnd)
+                // Overlapping tokens will be rescanned, so we discard them.
+
+                // Check if it overlaps the start of the span. If it does, extend the span.
+                if (oldPosition < newSpanStart)
                 {
-                    var newPosition = oldPosition - oldChangeLength + originalNewChangeLength;
-                    var newEnd = newPosition + node.FullWidth;
-                    crumbledBoundaryEnd = Math.Max(crumbledBoundaryEnd, newEnd);
+                    newSpanStart = oldPosition;
+                }
+
+                // Check if it overlaps the end of the span. If it does, extend the span.
+                // We need to extend if the token extends to or past deletedEnd
+                if (oldEnd >= deletedEnd)
+                {
+                    var newEnd = oldEnd + delta;
+                    if (newEnd > newSpanEnd)
+                    {
+                        newSpanEnd = newEnd;
+                    }
                 }
             }
             else
             {
-                // Non-terminal overlapping - check if entirely inside
-                bool entirelyInside = oldPosition >= changeStart && oldEnd <= changeEnd;
-                if (entirelyInside)
-                {
-                    // Discard non-terminals entirely inside the change
-                    discardedSize += node.FullWidth;
-                }
-                else
-                {
-                    // Crumble non-terminals that overlap
-                    CrumbleNode(node, oldPosition, workStack);
-                }
+                // Crumble nonterminals that overlap (they will be rescanned).
+                CrumbleNode(node, oldPosition, workStack);
             }
         }
+
+        // At this point
+        // 1. the left stack should end at newSpanStart,
+        Debug.Assert(leftStackEndPosition == newSpanStart);
+        // 2. the segment that needs to be scanned ranges from newSpanStart to newSpanEnd, and
+        Debug.Assert(newSpanStart <= newSpanEnd);
+        // 3. the work stack's head (adjusted by delta) should be at position newSpanEnd.
+        var workStackStart = workStack.TryPeek(out var top) ? top.oldPosition+delta : newText.Length;
+        Debug.Assert(workStackStart == newSpanEnd);
+
+        // Now push the whole program, from tail to head, onto _symbolStack:
+        // 1. the work queue
+        // 2. a text segment from newSpanStart to newSpanEnd
+        // 3. the left stack (in reverse order)
 
         // Push remaining work queue items onto result (they're all after the change)
         // Work stack has leftmost at top, so we need to reverse to get right order on result
         var tempStack = new Stack<SymbolEntry>();
-        var rightStackStartPosition = int.MaxValue; // Track where the right stack starts in NEW text coordinates
-        while (workStack.Count > 0)
+        // Compute the start position of the first node in the work stack
+        // The work stack has nodes in order (leftmost at top), and we need to compute their positions in new coordinates
+        // We'll process them from right to left (pop from work stack) and compute positions working backwards
+        var newPosition = newSpanEnd;
+        
+        // Pop the work stack into a temporary stack so we can push it to _symbolStack in order
+        while (workStack.TryPop(out var item))
         {
-            var (node, oldPosition) = workStack.Pop();
-            // Adjust position using original change boundaries (not extended)
-            // For insertions, oldChangeLength = 0, so positions shift by originalNewChangeLength
-            // For deletions/replacements, positions shift by (originalNewChangeLength - oldChangeLength)
-            var adjustedPosition = oldPosition - oldChangeLength + originalNewChangeLength;
-            var entry = new SymbolEntry(node, adjustedPosition);
-            tempStack.Push(entry);
-            // Track the leftmost position in the right stack
-            // Entry is always a node (never text) when created from workStack
-            rightStackStartPosition = Math.Min(rightStackStartPosition, entry.NewStart);
+            var (node, oldPosition) = item;
+            if (node.FullWidth == 0)
+                continue;
+            // Because these are after the change, their position differs by delta
+            Debug.Assert(oldPosition + delta == newPosition);
+            tempStack.Push(new SymbolEntry(node, newPosition));
+            newPosition += node.FullWidth; // work queue pops left to right.
         }
-        // Reverse tempStack onto result (so leftmost is on top of result)
-        while (tempStack.Count > 0)
+        Debug.Assert(newPosition == newText.Length);
+        while (tempStack.TryPop(out var entry))
         {
-            _symbolStack.Push(tempStack.Pop());
-        }
-
-        // Push text segment for the change region
-        // The segment starts at the end of the left stack and extends to the start of the right stack
-        // This covers:
-        // - Any gap from leftStackEndPosition to originalChangeStart
-        // - The inserted text (which replaces the deleted text and any discarded symbols)
-        // - Any gap from the end of the inserted text to the start of the right stack
-        // If there's no right stack, extend to at least the end of the inserted text
-        var textSegmentStart = leftStackEndPosition;
-        var insertedTextStart = originalChangeStart;
-        var insertedTextEnd = insertedTextStart + originalNewChangeLength;
-        // Extend text segment to include crumbled tokens at the boundary
-        var minTextSegmentEnd = Math.Max(insertedTextEnd, crumbledBoundaryEnd);
-        var textSegmentEnd = rightStackStartPosition < int.MaxValue ? rightStackStartPosition : minTextSegmentEnd;
-        var textSegmentSize = textSegmentEnd - textSegmentStart;
-        if (textSegmentSize > 0)
-        {
-            // Assert that the text segment covers the original inserted text span
-            // In NEW text coordinates, the inserted text is at originalChangeStart with length originalNewChangeLength
-            if (textSegmentStart > insertedTextStart || textSegmentEnd < insertedTextEnd)
-            {
-                throw new InvalidOperationException(
-                    $"Text segment {textSegmentStart}..{textSegmentEnd} does not cover inserted text span {insertedTextStart}..{insertedTextEnd}. " +
-                    $"leftStackEndPosition={leftStackEndPosition}, rightStackStartPosition={rightStackStartPosition}");
-            }
-            
-            System.Console.WriteLine($"[BuildInitialStack] Pushing text segment: {textSegmentStart}..{textSegmentEnd} (leftStackEnd={leftStackEndPosition}, rightStackStart={rightStackStartPosition}, inserted={originalNewChangeLength})");
-            _symbolStack.Push(new SymbolEntry(textSegmentStart, textSegmentEnd));
-        }
-
-        // Push left stack onto result (leftmost should be on top, so pop and push)
-        while (leftStack.Count > 0)
-        {
-            var entry = leftStack.Pop();
-            System.Console.WriteLine($"[BuildInitialStack] Pushing from leftStack: {entry.Node?.Kind} at {entry.NewStart}..{(entry.IsText ? entry.TextEnd : entry.NewStart + entry.Node!.FullWidth)}");
             _symbolStack.Push(entry);
+            newPosition -= entry.Node.FullWidth; // we push onto the result queue right to left
         }
+
+        // Push the text segment
+        Debug.Assert(newPosition == newSpanEnd);
+        newPosition = newSpanStart;
+        _symbolStack.Push(new SymbolEntry(newSpanStart, newSpanEnd));
+
+        // Finally, push the left stack onto _symbolStack
+        while (leftStack.TryPop(out var entry))
+        {
+            _symbolStack.Push(entry);
+            newPosition -= entry.Node.FullWidth;
+        }
+
+        // We should have pushed the whole program onto _symbolStack
+        Debug.Assert(newPosition == 0);
     }
 
     private void EnsureCharacterAvailable()
@@ -420,8 +404,6 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
             return;
         }
 
-        System.Console.WriteLine($"[EnsureToken] Starting, position={_currentPosition}, stackCount={_symbolStack.Count}");
-
         while (true)
         {
             ProcessStackUntilToken();
@@ -430,10 +412,8 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
             if (_symbolStack.Count == 0)
             {
                 // Stack is empty - lex the next token (which will be EOF if we're at the end)
-                System.Console.WriteLine($"[EnsureToken] Stack empty, lexing from position {_currentPosition}");
                 var lexed = LexNextToken();
                 _pendingToken = lexed;
-                System.Console.WriteLine($"[EnsureToken] Lexed {lexed.Token.Kind} at {lexed.FullStart}..{lexed.FullEnd}, position now={_currentPosition}");
                 return;
             }
 
@@ -442,29 +422,21 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
             // If we have a synchronized token on the stack, convert it to pending token
             if (top.Node is GreenToken greenToken)
             {
+                // Tokens with diagnostics should be crumbled to text segments for rescanning
+                if (greenToken.ContainsDiagnostics)
+                {
+                    CrumbleTopSymbol();
+                    continue;
+                }
+                
                 // _currentPosition should always be synchronized with the top of the stack
                 AssertPositionSynchronized("EnsureToken (token found)");
                 _pendingToken = new SymbolToken(greenToken, top.NewStart, top.NewStart + greenToken.LeadingWidth);
-                System.Console.WriteLine($"[EnsureToken] Found token on stack: {greenToken.Kind} at {top.NewStart}..{top.NewStart + greenToken.FullWidth}, position={_currentPosition}");
                 // Remove the token from the stack since it's now pending
                 _symbolStack.Pop();
                 // Advance position past the token (to keep _currentPosition reflecting stack position)
                 var tokenEnd = top.NewStart + greenToken.FullWidth;
                 _currentPosition = tokenEnd;
-                
-                // Diagnose if there's a gap to the next symbol
-                if (_symbolStack.Count > 0)
-                {
-                    var nextTop = _symbolStack.Peek();
-                    var nextStart = nextTop.IsText ? nextTop.TextStart : nextTop.NewStart;
-                    if (nextStart > tokenEnd)
-                    {
-                        var gap = nextStart - tokenEnd;
-                        System.Console.WriteLine($"[EnsureToken] WARNING: Gap of {gap} characters between token end {tokenEnd} and next symbol start {nextStart} ({(nextTop.IsText ? "text segment" : nextTop.Node.Kind.ToString())})");
-                    }
-                }
-                
-                System.Console.WriteLine($"[EnsureToken] Advanced position to {_currentPosition}");
                 
                 // After advancing position, verify synchronization with next symbol (if any)
                 AssertPositionSynchronized("EnsureToken (after advancing position)");
@@ -498,10 +470,8 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
                     // Lex a token from the text segment
                     // The lexer will use PeekCharacter/ConsumeCharacter which call EnsureCharacterAvailable,
                     // which ensures we have text available from the stack
-                    System.Console.WriteLine($"[EnsureToken] Lexing from text segment {textStart}..{textEnd}, position={_currentPosition}");
                     var lexed = LexNextToken();
                     _pendingToken = lexed;
-                    System.Console.WriteLine($"[EnsureToken] Lexed {lexed.Token.Kind} at {lexed.FullStart}..{lexed.FullEnd}, position now={_currentPosition}");
                     return;
                 }
                 catch (Exception ex)
@@ -567,8 +537,15 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
                 break;
             }
 
-            if (top.Node is GreenToken)
+            if (top.Node is GreenToken greenToken)
             {
+                // Tokens with diagnostics should be crumbled to text segments for rescanning
+                if (greenToken.ContainsDiagnostics)
+                {
+                    CrumbleTopSymbol();
+                    continue;
+                }
+                
                 // _currentPosition should always be synchronized with the top of the stack
                 AssertPositionSynchronized("ProcessStackUntilToken (token found)");
                 
@@ -677,13 +654,24 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
             return;
         }
         
-        // Tokens can't be crumbled - they have no children
-        if (node is GreenToken)
+        // Tokens with diagnostics should be converted to text segments for rescanning
+        if (node is GreenToken token)
         {
-            throw new InvalidOperationException(
-                $"Cannot crumble token {node.Kind} at {newPosition} - tokens have no children.");
+            if (token.ContainsDiagnostics)
+            {
+                // Convert token to text segment for rescanning
+                var tokenEnd = newPosition + token.FullWidth;
+                _symbolStack.Push(new SymbolEntry(newPosition, tokenEnd));
+                _currentPosition = newPosition;
+                return;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Cannot crumble token {node.Kind} at {newPosition} - tokens have no children and no diagnostics.");
+            }
         }
-
+        
         // Push children in reverse order to maintain correct order when popped
         // The first child (index 0) will be pushed last, so it will be on top
         // Start at the end position of the parent and work backwards
@@ -800,6 +788,50 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         public bool IsText { get; }
         public int TextStart { get; }
         public int TextEnd { get; }
+    }
+
+    /// <summary>
+    /// Wrapper around Blender's character access that handles pushback.
+    /// This isolates the pushback logic from the complex position tracking in the Blender.
+    /// </summary>
+    private sealed class BlenderCharacterSource : ICharacterSource
+    {
+        private readonly Blender _blender;
+        private char? _pushBack;
+
+        public BlenderCharacterSource(Blender blender)
+        {
+            _blender = blender;
+        }
+
+        public char PeekCharacter()
+        {
+            if (_pushBack.HasValue)
+                return _pushBack.Value;
+            
+            return _blender.PeekCharacterCore();
+        }
+
+        public char ConsumeCharacter()
+        {
+            if (_pushBack.HasValue)
+            {
+                var pushedBack = _pushBack.Value;
+                _pushBack = null;
+                return pushedBack;
+            }
+            
+            return _blender.ConsumeCharacterCore();
+        }
+
+        public void PushBack(char ch)
+        {
+            if (_pushBack.HasValue)
+                throw new InvalidOperationException("Cannot push back more than one character.");
+            _pushBack = ch;
+        }
+
+        public int CurrentPosition => _pushBack.HasValue ? _blender.CurrentPositionCore - 1 : _blender.CurrentPositionCore;
     }
 }
 

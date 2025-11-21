@@ -36,12 +36,36 @@ public sealed class IncrementalParsingTests
         Rope replacementText,
         string caseIdentifier)
     {
+        // Compute test case details before parsing (so we can print them even if parsing fails)
+        var commonPrefixStr = originalText[0..deletedSpan.Start];
+        var deletedTextStr = originalText[deletedSpan.Start..deletedSpan.End];
+        var insertedTextStr = originalText[insertedSpan.Start..insertedSpan.End];
+        var commonSuffixStr = originalText[deletedSpan.End..originalText.Length];
+        
         var originalTree = SyntaxTree.Parse(originalText);
         var change = new TextChange(deletedSpan, replacementText.Length);
         var incrementalTree = originalTree.WithChange(change, replacementText);
 
         Rope editedRope = change.ApplyTo(originalText, replacementText);
-        var reparsedTree = SyntaxTree.Parse(editedRope);
+        SyntaxTree reparsedTree;
+        try
+        {
+            reparsedTree = SyntaxTree.Parse(editedRope);
+        }
+        catch (Exception parseEx)
+        {
+            // If full reparse fails, print the test case details and rethrow
+            var (targetOffset, targetLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
+            var (sourceOffset, sourceLength) = insertedSpan.GetOffsetAndLength(originalText.Length);
+            System.Console.WriteLine($"Full reparse failed for {caseIdentifier}");
+            System.Console.WriteLine($"For custom test case:");
+            System.Console.WriteLine($"commonPrefix: @\"{commonPrefixStr.ToString().Replace("\"", "\"\"")}\"");
+            System.Console.WriteLine($"deletedText: @\"{deletedTextStr.ToString().Replace("\"", "\"\"")}\"");
+            System.Console.WriteLine($"insertedText: @\"{insertedTextStr.ToString().Replace("\"", "\"\"")}\"");
+            System.Console.WriteLine($"commonSuffix: @\"{commonSuffixStr.ToString().Replace("\"", "\"\"")}\"");
+            System.Console.WriteLine($"Exception: {parseEx.GetType().Name}: {parseEx.Message}");
+            throw;
+        }
 
         try
         {
@@ -66,11 +90,7 @@ public sealed class IncrementalParsingTests
                 ? replacementText[0..100] + "..."
                 : replacementText;
 
-            // Compute common prefix, deleted, inserted, and suffix for easy test case creation
-            var commonPrefixStr = originalText[0..deletedSpan.Start];
-            var deletedTextStr = originalText[deletedSpan.Start..deletedSpan.End];
-            var insertedTextStr = originalText[insertedSpan.Start..insertedSpan.End];
-            var commonSuffixStr = originalText[deletedSpan.End..originalText.Length];
+            // Use the already computed test case details
             
             Assert.Fail(
                 $"{caseIdentifier} failed\n" +
@@ -101,41 +121,49 @@ public sealed class IncrementalParsingTests
     [InlineData(int.MaxValue, 10)]
     // The following are seeds that have been observed to fail the test previously
     [InlineData(4, 5)]
-    // [InlineData(130, 5)] // Skipped - failing
-    // [InlineData(15, 15)] // Skipped - not currently failing
-    // [InlineData(7, 1)] // Skipped - failing (see Minimal_FromSeed7Budget1)
+    [InlineData(130, 5)]
+    [InlineData(7, 1)]
     [InlineData(454, 2)]
-    // [InlineData(78, 4)] // Skipped - not currently failing
+    [InlineData(78, 4)]
     public void WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(int seed, int budget)
     {
         // Here we test cases where the original program was valid
         var random = new Random(seed);
         var originalText = GenerateRandomProgram(random, budget);
-        TestStringWithRandomReplacement(random, originalText, $"ValidProgram with seed={seed}, budget={budget}");
+        TestStringWithRandomReplacement(random, originalText, $"ValidProgram with seed={seed}, budget={budget}", validProgram: true);
     }
 
     [Theory]
     [InlineData(0, 10)]
-    // [InlineData(1, 10)] // Skipped - failing
+    [InlineData(1, 10)]
     [InlineData(12345, 10)]
     [InlineData(8675309, 10)]
     [InlineData(int.MaxValue, 10)]
+    // The following are seeds that have been observed to fail the test previously
     [InlineData(4, 5)]
-    // [InlineData(130, 5)] // Skipped - failing
-    // [InlineData(15, 15)] // Skipped - failing
-    // [InlineData(7, 1)] // Skipped - not currently failing
+    [InlineData(130, 5)]
+    [InlineData(4, 1)]
+    [InlineData(7, 1)]
     [InlineData(454, 2)]
-    // [InlineData(78, 4)] // Skipped - failing
+    [InlineData(40, 1)]
+    [InlineData(78, 4)]
     public void WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram(int seed, int budget)
     {
         // Here we test cases where the original program was valid
         var random = new Random(seed);
         var originalText = GenerateErroneousProgram(random, budget);
-        TestStringWithRandomReplacement(random, originalText, $"InvalidProgram with seed={seed}, budget={budget}");
+        TestStringWithRandomReplacement(random, originalText, $"InvalidProgram with seed={seed}, budget={budget}", validProgram: false);
     }
 
-    private void TestStringWithRandomReplacement(Random random, Rope originalText, string caseIdentifier)
+    private void TestStringWithRandomReplacement(Random random, Rope originalText, string caseIdentifier, bool validProgram = false)
     {
+        // If validProgram is true, assert that the original program is indeed error-free
+        if (validProgram)
+        {
+            var originalTree = SyntaxTree.Parse(originalText);
+            Assert.Empty(originalTree.Diagnostics);
+        }
+        
         var deletedSpan = RandomNonEmptySpan(random, originalText.Length);
         var insertedSpan = RandomNonEmptySpan(random, originalText.Length);
         Rope replacementRope = originalText[insertedSpan];
@@ -154,24 +182,26 @@ public sealed class IncrementalParsingTests
         return probablyBrokenText;
     }
 
-    [Fact(Skip = "Failing - contains failing seed combinations")]
+    [Fact]
     public void WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram_ManySeeds()
     {
-        for (int budget = 1; budget <= 15; budget++) {
-            for (int seed = 1; seed <= 5000; seed++)
+        var timeOffset = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        for (int budget = 1; budget <= 10; budget++) {
+            for (int seed = 1; seed <= 1000; seed++)
             {
-                WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(seed, budget);
+                WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(seed + timeOffset, budget);
             }
         }
     }
 
-    [Fact(Skip = "Failing - contains failing seed combinations")]
+    [Fact]
     public void WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram_ManySeeds()
     {
-        for (int budget = 1; budget <= 15; budget++) {
-            for (int seed = 1; seed <= 5000; seed++)
+        var timeOffset = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        for (int budget = 1; budget <= 10; budget++) {
+            for (int seed = 1; seed <= 1000; seed++)
             {
-                WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram(seed, budget);
+                WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram(seed + timeOffset, budget);
             }
         }
     }
@@ -420,6 +450,18 @@ public sealed class IncrementalParsingTests
     {
         var indentStr = new string(' ', indent * 2);
         Console.WriteLine($"{indentStr}{node.Kind} (FullWidth={node.Green.FullWidth}, Width={node.Green.Width})");
+        
+        // Print diagnostics nested under the node
+        var diagnostics = node.Diagnostics;
+        if (diagnostics.Count > 0)
+        {
+            var diagnosticIndent = new string(' ', (indent + 1) * 2);
+            foreach (var diagnostic in diagnostics)
+            {
+                Console.WriteLine($"{diagnosticIndent}Diagnostic: {diagnostic.Message} (Span={diagnostic.Span})");
+            }
+        }
+        
         foreach (var child in node.GetChildren())
         {
             PrintTree(child, indent + 1);

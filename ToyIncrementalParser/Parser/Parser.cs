@@ -11,20 +11,25 @@ namespace ToyIncrementalParser.Parser;
 public sealed class Parser
 {
     private readonly ISymbolStream _stream;
+    private readonly IText? _textSource;
 
     public Parser(Rope text)
-        : this(new LexingSymbolStream(text))
+        : this(new LexingSymbolStream(text), text)
     {
     }
 
-    internal Parser(ISymbolStream stream)
+    internal Parser(ISymbolStream stream, IText? textSource = null)
     {
         _stream = stream;
+        _textSource = textSource;
     }
 
     internal GreenProgramNode ParseProgram()
     {
         var statements = ParseStatementList();
+        
+        // MatchToken will collect all unexpected tokens before EOF and attach them as trivia to the EOF token
+        // This ensures the parser always consumes the entire input
         var endOfFileToken = MatchToken(NodeKind.EOFToken);
         return GreenFactory.Program(statements, endOfFileToken);
     }
@@ -34,7 +39,7 @@ public sealed class Parser
         var statements = new List<GreenNode>();
         while (true)
         {
-            // Try to reuse a statement first, before checking IsAtEnd() or PeekToken.Kind
+            // Try to reuse a statement, before checking IsAtEnd() or PeekToken.Kind
             // This avoids crumbling non-terminals when PeekToken() is called
             if (TryReuseStatement(out var reused))
             {
@@ -43,7 +48,9 @@ public sealed class Parser
             }
 
             // Now check if we're at the end or at a terminator
-            if (IsAtEnd() || terminators.Contains(PeekToken.Kind))
+            var peekKind = PeekToken.Kind;
+            var isAtEnd = IsAtEnd();
+            if (isAtEnd || terminators.Contains(peekKind))
                 break;
 
             var statementStart = PeekToken;
@@ -51,18 +58,20 @@ public sealed class Parser
             statements.Add(statement);
 
             if (ReferenceEquals(statementStart, PeekToken))
-                NextToken();
+                break;
         }
-
         return GreenFactory.StatementList(statements);
     }
 
     private GreenNode ParseStatement()
     {
         if (TryReuseStatement(out var reused))
+        {
             return reused;
+        }
 
-        return PeekToken.Kind switch
+        var kind = PeekToken.Kind;
+        var result = kind switch
         {
             NodeKind.PrintToken => ParsePrintStatement(),
             NodeKind.ReturnToken => ParseReturnStatement(),
@@ -72,6 +81,7 @@ public sealed class Parser
             NodeKind.WhileToken => ParseLoopStatement(),
             _ => ParseErrorStatement()
         };
+        return result;
     }
 
     private GreenNode ParseFunctionDefinition()
@@ -167,6 +177,16 @@ public sealed class Parser
             sawToken = true;
         }
 
+        // If we haven't consumed any tokens yet and we see a statement terminator,
+        // we should still consume it into the ErrorStatement (it's an error to have a terminator where a statement is expected)
+        if (tokens.Count == 0 && IsStatementTerminator(PeekToken.Kind) && PeekToken.Kind != NodeKind.EOFToken)
+        {
+            var info = ConsumeTokenInfo();
+            tokens.Add(info.Token);
+            lastTokenInfo = info;
+            sawToken = true;
+        }
+
         if (PeekToken.Kind == NodeKind.SemicolonToken)
         {
             var info = ConsumeTokenInfo();
@@ -198,13 +218,16 @@ public sealed class Parser
 
         while (true)
         {
-            if (PeekToken.Kind == NodeKind.IdentifierToken)
+            // If we're at a comma, create a missing identifier without consuming the comma
+            // (the comma will be consumed as a separator below)
+            if (PeekToken.Kind == NodeKind.CommaToken)
             {
-                identifiers.Add(NextToken());
+                identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
             }
             else
             {
-                identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
+                // Use MatchToken to handle unexpected tokens as trivia
+                identifiers.Add(MatchToken(NodeKind.IdentifierToken));
             }
 
             if (PeekToken.Kind != NodeKind.CommaToken)
@@ -214,7 +237,7 @@ public sealed class Parser
 
             if (PeekToken.Kind == terminator || PeekToken.Kind == NodeKind.EOFToken)
             {
-                identifiers.Add(CreateMissingToken(NodeKind.IdentifierToken));
+                identifiers.Add(MatchToken(NodeKind.IdentifierToken));
                 break;
             }
         }
@@ -313,7 +336,7 @@ public sealed class Parser
             NodeKind.NumberToken => GreenFactory.NumericLiteralExpression(NextToken()),
             NodeKind.StringToken => GreenFactory.StringLiteralExpression(NextToken()),
             NodeKind.OpenParenToken => ParseParenthesizedExpression(),
-            _ => GreenFactory.MissingExpression(CreateMissingToken(NodeKind.MissingToken))
+            _ => GreenFactory.IdentifierExpression(MatchToken(NodeKind.IdentifierToken))
         };
     }
 
@@ -338,7 +361,83 @@ public sealed class Parser
         if (PeekToken.Kind == expected)
             return NextToken();
 
-        return CreateMissingToken(expected);
+        // Collect unexpected tokens as trivia until we find the expected token or hit EOF
+        var unexpectedTrivia = new List<GreenTrivia>();
+        
+        while (!IsAtEnd() && PeekToken.Kind != expected)
+        {
+            var unexpectedInfo = ConsumeTokenInfo();
+            var unexpectedToken = unexpectedInfo.Token;
+            
+            // Add the token's existing leading trivia
+            foreach (var leading in unexpectedToken.LeadingTrivia)
+            {
+                unexpectedTrivia.Add(leading);
+            }
+            
+            // Create trivia from the unexpected token itself
+            // The text includes just the token content (not leading/trailing trivia which are already added)
+            var tokenText = GetTokenText(unexpectedToken, unexpectedInfo);
+            var diagnostic = new Diagnostic($"Unexpected token '{unexpectedToken.Kind}'. Expected '{expected}'.", 0..unexpectedToken.Width);
+            var unexpectedTriviaItem = new GreenTrivia(NodeKind.UnexpectedToken, tokenText, new[] { diagnostic });
+            unexpectedTrivia.Add(unexpectedTriviaItem);
+            
+            // Add the token's existing trailing trivia
+            foreach (var trailing in unexpectedToken.TrailingTrivia)
+            {
+                unexpectedTrivia.Add(trailing);
+            }
+        }
+        
+        if (IsAtEnd())
+        {
+            // Create a missing token with the unexpected trivia as leading trivia
+            var diagnostic = new Diagnostic($"Expected token '{expected}'.", 0..0);
+            return new GreenToken(expected, 0, leadingTrivia: unexpectedTrivia, isMissing: true, diagnostics: new[] { diagnostic });
+        }
+        
+        // We found the expected token - add the unexpected trivia as its leading trivia
+        var expectedInfo = ConsumeTokenInfo();
+        var expectedToken = expectedInfo.Token;
+        
+        // Combine existing leading trivia with unexpected trivia
+        var combinedLeadingTrivia = new List<GreenTrivia>(unexpectedTrivia);
+        foreach (var existing in expectedToken.LeadingTrivia)
+        {
+            combinedLeadingTrivia.Add(existing);
+        }
+        
+        return new GreenToken(
+            expectedToken.Kind,
+            expectedToken.Width,
+            leadingTrivia: combinedLeadingTrivia,
+            trailingTrivia: expectedToken.TrailingTrivia,
+            isMissing: false,
+            diagnostics: expectedToken.Diagnostics);
+    }
+    
+    private string GetTokenText(GreenToken token, SymbolToken info)
+    {
+        if (_textSource == null)
+        {
+            // Fallback: create placeholder text based on token width (not full width, since trivia is handled separately)
+            return new string('?', token.Width);
+        }
+        
+        // Get the actual text from the source (just the token content, not leading/trailing trivia)
+        var start = info.SpanStart;
+        var length = token.Width;
+        if (start + length > _textSource.Length)
+            length = _textSource.Length - start;
+        if (length < 0)
+            length = 0;
+        
+        var builder = new System.Text.StringBuilder(length);
+        for (int i = 0; i < length; i++)
+        {
+            builder.Append(_textSource[start + i]);
+        }
+        return builder.ToString();
     }
 
     private GreenToken CreateMissingToken(NodeKind expected)
@@ -378,7 +477,6 @@ public sealed class Parser
         // Peek at the top non-terminal to see if it's a statement we can reuse
         if (_stream.TryPeekNonTerminal(out var kind, out var node))
         {
-            System.Console.WriteLine($"TryReuseStatement: Found non-terminal {kind} at current position");
             // Check if it's one of the statement types we can reuse
             var isStatement = kind switch
             {
@@ -393,27 +491,13 @@ public sealed class Parser
 
             if (isStatement)
             {
-                System.Console.WriteLine($"TryReuseStatement: {kind} is a reusable statement type, attempting to take it");
                 // Take the non-terminal (it should match since we just peeked at it)
                 if (_stream.TryTakeNonTerminal(kind, out var reused))
                 {
-                    System.Console.WriteLine($"TryReuseStatement: Successfully reused {kind}");
                     statement = reused;
                     return true;
                 }
-                else
-                {
-                    System.Console.WriteLine($"TryReuseStatement: Failed to take {kind} (TryTakeNonTerminal returned false)");
-                }
             }
-            else
-            {
-                System.Console.WriteLine($"TryReuseStatement: {kind} is not a reusable statement type");
-            }
-        }
-        else
-        {
-            System.Console.WriteLine($"TryReuseStatement: No non-terminal found at current position");
         }
 
         return false;

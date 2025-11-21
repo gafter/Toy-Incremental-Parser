@@ -73,7 +73,7 @@ public sealed class SyntaxToken : SyntaxNode
         for (var i = 0; i < trivia.Length; i++)
         {
             var t = trivia[i];
-            result[i] = new SyntaxTrivia(t.Kind, t.Text, position..(position + t.FullWidth));
+            result[i] = new SyntaxTrivia(t.Kind, t.Text, position..(position + t.FullWidth), t.Diagnostics);
             position += t.FullWidth;
         }
 

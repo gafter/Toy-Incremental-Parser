@@ -8,6 +8,7 @@ public enum NodeKind
     TabsTrivia,
     CommentTrivia,
     MultipleTrivia,
+    UnexpectedToken,
 
     // Terminal nodes
     EOFToken,

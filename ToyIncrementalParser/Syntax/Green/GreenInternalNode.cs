@@ -8,7 +8,8 @@ internal abstract class GreenInternalNode : GreenNode
     private readonly GreenNode?[] _children;
 
     protected GreenInternalNode(NodeKind kind, IReadOnlyList<GreenNode?> children, IReadOnlyList<Diagnostic>? diagnostics = null)
-        : base(kind, PrepareDiagnostics(children, diagnostics, out var array))
+        : base(kind, PrepareDiagnostics(children, diagnostics, out var array), 
+               ComputeContainsDiagnostics(children, diagnostics))
     {
         _children = array;
     }
@@ -34,6 +35,11 @@ internal abstract class GreenInternalNode : GreenNode
     {
         array = ToArray(children);
         return CombineDiagnostics(array, diagnostics);
+    }
+
+    private static bool ComputeContainsDiagnostics(IReadOnlyList<GreenNode?> children, IReadOnlyList<Diagnostic>? diagnostics)
+    {
+        return GreenNode.ComputeContainsDiagnostics(diagnostics, children);
     }
 }
 

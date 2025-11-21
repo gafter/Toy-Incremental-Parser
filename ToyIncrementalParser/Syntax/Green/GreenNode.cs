@@ -7,11 +7,21 @@ namespace ToyIncrementalParser.Syntax.Green;
 internal abstract class GreenNode
 {
     private readonly Diagnostic[] _diagnostics;
+    private readonly bool _containsDiagnostics;
 
     protected GreenNode(NodeKind kind, IReadOnlyList<Diagnostic>? diagnostics = null)
     {
         Kind = kind;
         _diagnostics = diagnostics is null ? Array.Empty<Diagnostic>() : ToArray(diagnostics);
+        // ContainsDiagnostics will be computed by derived classes after children are set
+        _containsDiagnostics = false; // Will be set by derived classes
+    }
+
+    protected GreenNode(NodeKind kind, IReadOnlyList<Diagnostic>? diagnostics, bool containsDiagnostics)
+    {
+        Kind = kind;
+        _diagnostics = diagnostics is null ? Array.Empty<Diagnostic>() : ToArray(diagnostics);
+        _containsDiagnostics = containsDiagnostics;
     }
 
     public NodeKind Kind { get; }
@@ -22,7 +32,7 @@ internal abstract class GreenNode
 
     public virtual bool IsList => false;
 
-    public bool ContainsDiagnostics => _diagnostics.Length > 0 || HasChildDiagnostics();
+    public bool ContainsDiagnostics => _containsDiagnostics;
 
     public abstract int SlotCount { get; }
 
@@ -98,15 +108,19 @@ internal abstract class GreenNode
         return null;
     }
 
-    private bool HasChildDiagnostics()
+    protected static bool ComputeContainsDiagnostics(IReadOnlyList<Diagnostic>? diagnostics, IEnumerable<GreenNode?> children)
     {
-        for (var i = 0; i < SlotCount; i++)
+        // Check if this node has diagnostics
+        if (diagnostics is not null && diagnostics.Count > 0)
+            return true;
+        
+        // Check if any child has diagnostics
+        foreach (var child in children)
         {
-            var slot = GetSlot(i);
-            if (slot is not null && slot.ContainsDiagnostics)
+            if (child is not null && child.ContainsDiagnostics)
                 return true;
         }
-
+        
         return false;
     }
 

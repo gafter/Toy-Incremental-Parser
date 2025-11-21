@@ -9,44 +9,22 @@ namespace ToyIncrementalParser.Tests;
 
 public sealed class DebugIncrementalTests
 {
+    // [Fact(Skip = "Failing - needs investigation")]
     [Fact]
-    public void Minimal_InsertStatement()
+    public void Minimal_FromSeed40Budget1()
     {
-        TestIncrementalChange(
-            prefix: "print 1;\n",
-            oldMiddle: "",
-            newMiddle: "print 2;\n",
-            suffix: "print 3;\n");
-    }
-
-    [Fact]
-    public void Minimal_FromFailingTest()
-    {
-        // From Debug_Particular_InvalidProgram_ShowTrees failure
-        // Prefix: "while//aj0tj n92sa8 zydngkc\n4219 do\nwhile(//vs7i4;\nfiint 0;\nelse print\n0;\nfi " (length=77)
-        // Deleted: "o" (length=1) at position 77
-        // Inserted: "o\nwhile(/" (length=9)
-        TestIncrementalChange(
-            prefix: "while//aj0tj n92sa8 zydngkc\n4219 do\nwhile(//vs7i4;\nfiint 0;\nelse print\n0;\nfi ",
-            oldMiddle: "o",
-            newMiddle: "o\nwhile(/",
-            suffix: "d\nod");
-    }
-
-    [Fact(Skip = "Failing - tree equivalence issue with ErrorStatement and missing FiToken")]
-    public void Minimal_FromSeed7Budget1()
-    {
-        // Minimal test case extracted from WithChange_RandomSpanReplacement_MatchesFullParse_ValidProgram(seed: 7, budget: 1)
-        // This test case fails due to tree equivalence issues
-        const string commonPrefix = "	if r9w//w uw7\n then print 0;\n//sh10\n//yr0y\n\nelse print//wx\n 0//rs m c\n;//v ";
-        const string deletedText = "qy0cl\n\nfi//p53m2ez";
-        const string insertedText = "print//wx\n 0//rs m ";
-        const string commonSuffix = " do5c";
-
-        var (originalTree, incrementalTree) = IncrementalParsingTests.TestIncrementalChange(commonPrefix, deletedText, insertedText, commonSuffix);
-
-        // The test should pass if trees are equivalent
-        // If it fails, the error will show the tree differences
+        // Isolated test case from WithChange_RandomSpanReplacement_MatchesFullParse_InvalidProgram(seed: 40, budget: 1)
+        // Test case extracted from the failing test:
+        const string commonPrefix = "\ndefine g//a";
+        const string deletedText = "s2a";
+        const string insertedText = "a\n(bij\n=\"\\\n";
+        const string commonSuffix = "uu6 ag4hzz m6688\n//c57q9sa\n(bij\n=\"\\\n\n\";\n";
+        
+        var (originalTree, incrementalTree) = IncrementalParsingTests.TestIncrementalChange(
+            commonPrefix,
+            deletedText,
+            insertedText,
+            commonSuffix);
     }
 
     [Fact]
