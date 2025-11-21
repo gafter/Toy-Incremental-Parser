@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Parser;
 using ToyIncrementalParser.Syntax.Green;
@@ -30,6 +31,7 @@ public sealed class SyntaxTree
         ArgumentNullException.ThrowIfNull(text);
         var parser = new ToyIncrementalParser.Parser.Parser(new LexingSymbolStream(text));
         var root = parser.ParseProgram();
+        Debug.Assert(root.FullWidth == text.Length, $"Parser did not consume all input. Root FullWidth={root.FullWidth}, Text Length={text.Length}");
         return new SyntaxTree(text, root);
     }
 

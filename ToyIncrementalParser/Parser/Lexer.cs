@@ -1,9 +1,6 @@
-using System;
-using System.Collections.Generic;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
-using ToyIncrementalParser.Text;
 using static ToyIncrementalParser.Text.SpecialCharacters;
 
 namespace ToyIncrementalParser.Parser;

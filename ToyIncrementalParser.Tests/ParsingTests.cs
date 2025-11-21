@@ -1,7 +1,5 @@
 using System.Linq;
-using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
-using ToyIncrementalParser.Text;
 using Xunit;
 
 namespace ToyIncrementalParser.Tests;
@@ -170,6 +168,25 @@ public class ParsingTests
         Assert.Equal(2, function.Parameters.Identifiers.Count);
         Assert.All(function.Parameters.Identifiers, identifier => Assert.True(identifier.IsMissing));
         Assert.Contains(tree.Diagnostics, diagnostic => diagnostic.Message.Contains("IdentifierToken"));
+    }
+
+    [Fact]
+    public void IdentifierList_WithTrailingComma_CreatesMissingIdentifier()
+    {
+        const string source = "define f(x,) = 0;";
+
+        var tree = SyntaxTree.Parse(source);
+        var statement = Assert.Single(tree.Root.Statements.Statements);
+        var function = Assert.IsType<FunctionDefinitionSyntax>(statement);
+
+        // Should have 2 identifiers (x and missing)
+        Assert.Equal(2, function.Parameters.Identifiers.Count);
+        Assert.Equal("x", function.Parameters.Identifiers[0].Text);
+        Assert.True(function.Parameters.Identifiers[1].IsMissing);
+        
+        // The close paren should still be present (not consumed as unexpected trivia)
+        Assert.Equal(")", function.CloseParenToken.Text);
+        Assert.False(function.CloseParenToken.IsMissing);
     }
 
     [Fact]
