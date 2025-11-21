@@ -34,6 +34,7 @@ The test suite includes programmatic test generators that create random programs
 - **`GenerateErroneousProgram`**: Generates programs that may contain syntax errors by taking a valid program and performing random span replacements, which can introduce syntax errors.
 
 Both generators are used in tests that:
+
 1. Generate a random program (valid or potentially erroneous)
 2. Apply random text edits to the program
 3. Reparse the edited program using both incremental parsing and full parsing
@@ -125,6 +126,130 @@ The blender is the core component that enables incremental parsing. It implement
 ### Character Source Lexer
 
 The `Lexer` reads characters from an `ICharacterSource` (the blender) rather than maintaining its own position state. The character source tracks position, allowing the lexer to work seamlessly with the blender's incremental symbol stream, peeking at characters without forcing unnecessary crumbling.
+
+## Incremental Parsing Strategy
+
+The incremental parsing strategy is the core innovation that enables efficient reparsing when source code is edited. This section provides a detailed explanation of how the Blender and Parser work together to reuse unchanged portions of the syntax tree.
+
+### Overview
+
+When source code is edited, most of the syntax tree remains unchanged. The incremental parser's goal is to reuse these unchanged portions rather than reparsing everything from scratch. The key insight is that green nodes don't store absolute positions—they only store widths. Therefore, if a nonterminal node (like a statement) in the old tree is entirely outside the edited range, the entire subtree can be reused without reparsing, regardless of whether its absolute position changed due to insertions or deletions elsewhere in the file.
+
+**Green vs. Red Trees**: The incremental parsing strategy relies on the green/red tree separation. Green trees are relative—they store only structure and widths, not absolute positions. This makes them ideal for incremental parsing because unchanged green nodes can be reused even when their absolute positions in the file have shifted due to edits elsewhere. Red trees wrap green trees and are constructed lazily on demand. They provide absolute positions, parent pointers, and full syntax tree navigation, but are only created when needed (e.g., when accessing spans or traversing the tree). The Blender works exclusively with green nodes during incremental parsing, maintaining its own position tracking in the symbol stack entries.
+
+The Blender (`Blender.cs`) is the component that orchestrates this reuse. It sits between the Parser and the Lexer, implementing both `ISymbolStream` (for the parser) and `ICharacterSource` (for the lexer). The Blender maintains a stack of symbols (tokens, nonterminals, and text segments) from the old tree, and processes them to provide tokens and nonterminals to the parser on demand.
+
+### The Blender's Symbol Stack
+
+The Blender maintains a LIFO stack (`_symbolStack`) containing three types of entries:
+
+1. **Nonterminal nodes**: Green nodes from the old tree that haven't been processed yet
+2. **Token nodes**: Green tokens from the old tree that can potentially be reused
+3. **Text segments**: Ranges of text that need to be lexed (either from the changed region or from tokens that were crumbled)
+
+Each entry is represented by a `SymbolEntry` that tracks:
+
+- The node (if it's a nonterminal or token) or text bounds (if it's a text segment)
+- The start position in the new text coordinate system
+
+The stack is ordered so that symbols appear in left-to-right order when popped (because they're pushed right-to-left). This ensures the parser sees symbols in the correct sequence.
+
+### Position Synchronization
+
+A critical invariant maintained by the Blender is **position synchronization**: `_currentPosition` (the current position in the new text) must always match the start position of the top symbol on the stack (if the stack is non-empty and the top is a nonterminal or token). For text segments, `_currentPosition` must be within the segment's bounds.
+
+This synchronization enables the Blender to know when it can directly reuse a symbol: if `_currentPosition` equals the start of a nonterminal on the stack, and the parser requests that nonterminal, it can be reused without any further processing.
+
+### Initial Stack Building
+
+When a `TextChange` is applied, the Blender must build its initial symbol stack from the old tree. The algorithm (`BuildInitialStack`) achieves O(changed symbols) complexity by walking the old tree once:
+
+1. **Two-stack approach**: The algorithm uses a `leftStack` for symbols entirely before the change, and a `workStack` for symbols entirely after the change.
+
+2. **Iterative tree walk**: Starting from the root, it walks the tree depth-first:
+   - If a node ends before the change: push it to `leftStack` (these are entirely unchanged)
+   - If a node starts after the change: push it to `workStack` (these are after the change, but their positions need adjustment by `delta`)
+   - If a node overlaps the change: crumble it (push its children onto the work stack for further processing)
+
+3. **Token overlap handling**: Tokens that overlap the change boundary are discarded, and the change span is extended to include them. This ensures that any token touched by the change is rescanned.
+
+4. **Stack assembly**: The final `_symbolStack` is assembled by:
+   - Pushing the work stack items (adjusted for `delta`) in reverse order
+   - Pushing a text segment covering the changed region
+   - Pushing the left stack items in reverse order (which reverses them again, putting them in correct order)
+
+The result is a stack where symbols appear in left-to-right order when popped, with the changed text region represented as a text segment that will be lexed on demand.
+
+### The Parser's Reuse API
+
+The Parser uses two methods from `ISymbolStream` to request nonterminals for reuse:
+
+1. **`TryPeekNonTerminal(out NodeKind kind, out GreenNode node)`**: Peeks at the top nonterminal on the stack without consuming it. This allows the parser to check what's available before deciding whether to reuse it.
+
+2. **`TryTakeNonTerminal(NodeKind kind, out GreenNode node)`**: Attempts to take a nonterminal of the specified kind from the stack. This succeeds only if:
+   - The stack is non-empty and the top is a nonterminal (not a token or text segment)
+   - There's no pending token
+   - The position is synchronized (the top nonterminal starts at `_currentPosition`)
+   - The nonterminal's kind matches the requested kind
+   - The nonterminal has no diagnostics (nodes with diagnostics are always rescanned)
+
+The parser calls `TryReuseStatement` at the start of `ParseStatement` and in the loop in `ParseStatementList`, before checking what token comes next. This ensures that if a statement is available for reuse, it's taken before the parser would otherwise start parsing tokens, avoiding unnecessary crumbling.
+
+### Crumbling
+
+When a symbol cannot be reused (e.g., it's the wrong kind, it has diagnostics, or the lexer needs to peek inside it), the Blender "crumbles" it by:
+
+1. Removing it from the stack
+2. Pushing its children onto the stack in reverse order (right-to-left), so they appear in correct order when popped
+3. Discarding children with empty spans (missing tokens)
+
+The crumbling process (`CrumbleTopSymbol`) maintains position synchronization: it calculates each child's position based on the parent's position and the widths of preceding children, ensuring that when a child is pushed, its position is correctly recorded.
+
+### Token Processing
+
+The Blender processes tokens through several mechanisms:
+
+1. **Token reuse**: If a token is synchronized and has no diagnostics, it can be directly returned to the parser via `PeekToken()` or `ConsumeToken()`.
+
+2. **Token crumbling**: If the lexer needs to peek at characters inside a token (e.g., to determine token boundaries), the token is crumbled by converting it to a text segment covering its span. This allows the lexer to rescan it.
+
+3. **Lazy lexing**: When the stack top is a text segment, the lexer is invoked to produce the next token. The lexer reads characters via `ICharacterSource`, which delegates to the Blender's character access methods.
+
+### Synchronization Invariants
+
+Throughout its operation, the Blender maintains several critical invariants:
+
+1. **Position synchronization**: `_currentPosition` always matches the start of the top symbol (for nonterminals/tokens) or is within the top text segment's bounds.
+
+2. **Stack ordering**: Symbols on the stack are in left-to-right order (when popped), with no gaps between them.
+
+3. **No diagnostics reuse**: Nodes with diagnostics are never reused; they're always crumbled and rescanned to ensure error correctness.
+
+4. **Empty span handling**: Nodes with empty spans (missing tokens) are discarded during crumbling, as they don't represent actual source text.
+
+These invariants are enforced through assertions (`AssertPositionSynchronized`) that verify synchronization at key points, helping catch bugs during development.
+
+### Efficiency Characteristics
+
+The incremental parsing strategy achieves several efficiency goals:
+
+1. **O(changed symbols) initial setup**: The initial stack building walks only the portion of the tree affected by the change, not the entire tree.
+
+2. **Lazy processing**: Symbols are only crumbled when necessary (when the parser or lexer needs to see inside them), not upfront.
+
+3. **Structural sharing**: Reused nonterminals are the same green node objects from the old tree, enabling memory efficiency through structural sharing.
+
+4. **Correctness**: The strategy ensures that the incremental parse produces the same tree as a full parse would, by only reusing nodes that are guaranteed to be unchanged and by always rescanning regions touched by edits.
+
+### Extension Points
+
+The current implementation focuses on statement-level reuse. To extend it to other constructs (e.g., expressions), the same pattern applies:
+
+1. Add the construct's node kinds to the reuse check in the parser (similar to `TryReuseStatement`)
+2. Call `TryTakeNonTerminal` before parsing the construct
+3. The Blender will automatically handle crumbling and synchronization
+
+The Blender itself doesn't need changes to support additional construct types, as it operates generically on green nodes.
 
 ## Current Status
 
