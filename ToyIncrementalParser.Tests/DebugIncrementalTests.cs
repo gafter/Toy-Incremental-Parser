@@ -8,7 +8,6 @@ namespace ToyIncrementalParser.Tests;
 
 public sealed class DebugIncrementalTests
 {
-    // [Fact(Skip = "Failing - needs investigation")]
     [Fact]
     public void Minimal_FromSeed40Budget1()
     {
