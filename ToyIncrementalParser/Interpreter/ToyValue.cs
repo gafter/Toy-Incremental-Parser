@@ -81,4 +81,3 @@ public readonly struct ToyValue : IEquatable<ToyValue>
 
     public override string ToString() => ToDisplayString();
 }
-

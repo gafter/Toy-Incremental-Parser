@@ -20,4 +20,3 @@ public sealed class ProgramSyntax : SyntaxNode
 
     public override NodeKind Kind => NodeKind.Program;
 }
-

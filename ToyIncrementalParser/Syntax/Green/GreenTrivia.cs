@@ -21,4 +21,3 @@ internal sealed class GreenTrivia
 
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
 }
-

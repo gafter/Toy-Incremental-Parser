@@ -829,6 +829,3 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
         public int CurrentPosition => _pushBack.HasValue ? _blender.CurrentPositionCore - 1 : _blender.CurrentPositionCore;
     }
 }
-
-
-

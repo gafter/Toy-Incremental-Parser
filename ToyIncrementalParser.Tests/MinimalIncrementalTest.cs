@@ -29,4 +29,3 @@ public sealed class MinimalIncrementalTest
         // in the buffer without crumbling, so we don't assert that they must be different.
     }
 }
-

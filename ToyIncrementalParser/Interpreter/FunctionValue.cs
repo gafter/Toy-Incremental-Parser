@@ -23,4 +23,3 @@ public sealed class FunctionValue
 
     internal string GetDisplayName() => $"<function {Name}>";
 }
-

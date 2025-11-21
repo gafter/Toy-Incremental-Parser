@@ -21,4 +21,3 @@ public sealed class BinaryExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.BinaryExpression;
 }
-

@@ -21,4 +21,3 @@ public sealed class ExpressionBodySyntax : FunctionBodySyntax
 
     public override NodeKind Kind => NodeKind.ExpressionBody;
 }
-

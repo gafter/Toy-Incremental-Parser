@@ -34,4 +34,3 @@ public sealed class ErrorStatementSyntax : StatementSyntax
         return result;
     }
 }
-

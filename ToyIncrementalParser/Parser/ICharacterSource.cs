@@ -10,4 +10,3 @@ internal interface ICharacterSource
 
     int CurrentPosition { get; }
 }
-

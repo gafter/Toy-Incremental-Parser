@@ -52,4 +52,3 @@ internal sealed class ITextCharacterSource : ICharacterSource
 
     public int CurrentPosition => _pushBack.HasValue ? _position - 1 : _position;
 }
-

@@ -321,4 +321,3 @@ public abstract class Rope : IText
         }
     }
 }
-

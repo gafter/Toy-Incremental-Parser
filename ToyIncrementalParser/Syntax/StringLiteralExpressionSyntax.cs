@@ -48,4 +48,3 @@ public sealed class StringLiteralExpressionSyntax : ExpressionSyntax
         return builder.ToString();
     }
 }
-

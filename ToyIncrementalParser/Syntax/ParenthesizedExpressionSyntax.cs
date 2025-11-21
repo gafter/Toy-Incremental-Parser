@@ -21,4 +21,3 @@ public sealed class ParenthesizedExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.ParenthesizedExpression;
 }
-

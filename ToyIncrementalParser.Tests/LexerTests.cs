@@ -203,4 +203,3 @@ public sealed class LexerTests
         Assert.Equal("//", incrementalComment.Text);
     }
 }
-

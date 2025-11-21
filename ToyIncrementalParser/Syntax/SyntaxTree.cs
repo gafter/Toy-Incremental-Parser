@@ -63,4 +63,3 @@ public sealed class SyntaxTree
     internal SyntaxToken CreateToken(SyntaxNode? parent, GreenToken token, int position) =>
         SyntaxToken.Create(this, parent, token, position);
 }
-

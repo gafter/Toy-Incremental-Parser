@@ -18,4 +18,3 @@ public sealed class UnaryExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.UnaryExpression;
 }
-

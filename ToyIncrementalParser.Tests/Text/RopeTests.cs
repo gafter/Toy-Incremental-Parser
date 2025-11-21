@@ -199,4 +199,3 @@ public class RopeTests
         Assert.Throws<OverflowException>(() => Rope.Concat(all, all));
     }
 }
-

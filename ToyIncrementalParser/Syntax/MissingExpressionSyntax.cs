@@ -15,4 +15,3 @@ public sealed class MissingExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.MissingExpression;
 }
-

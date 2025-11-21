@@ -15,4 +15,3 @@ public sealed class IdentifierExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.IdentifierExpression;
 }
-

@@ -305,10 +305,10 @@ public sealed class Interpreter
         public TextWriter Output { get; }
 
         public InvalidOperationException RuntimeError(SyntaxNode node, string message) =>
-            RuntimeError(node.Span.Start.GetOffset(int.MaxValue), message);
+            RuntimeError(node.Span.Start.Value, message);
 
         public InvalidOperationException RuntimeError(SyntaxToken token, string message) =>
-            RuntimeError(token.Span.Start.GetOffset(int.MaxValue), message);
+            RuntimeError(token.Span.Start.Value, message);
 
         private InvalidOperationException RuntimeError(int position, string message)
         {
@@ -349,4 +349,3 @@ public sealed class Interpreter
         }
     }
 }
-

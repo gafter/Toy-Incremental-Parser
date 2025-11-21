@@ -31,4 +31,3 @@ public sealed class LoopStatementSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.LoopStatement;
 }
-

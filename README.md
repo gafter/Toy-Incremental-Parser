@@ -25,6 +25,22 @@ dotnet test
 
 The test suite includes comprehensive coverage of parsing, incremental parsing, interpreter execution, error recovery, and edge cases.
 
+### Test Generators
+
+The test suite includes programmatic test generators that create random programs to validate incremental parsing correctness:
+
+- **`GenerateRandomProgram`**: Generates syntactically valid random programs with various statement types, expressions, and control flow constructs. These programs are used to test incremental parsing on error-free code.
+
+- **`GenerateErroneousProgram`**: Generates programs that may contain syntax errors by taking a valid program and performing random span replacements, which can introduce syntax errors.
+
+Both generators are used in tests that:
+1. Generate a random program (valid or potentially erroneous)
+2. Apply random text edits to the program
+3. Reparse the edited program using both incremental parsing and full parsing
+4. Verify that the incremental parse produces an equivalent syntax tree to the full parse
+
+This approach provides extensive coverage of incremental parsing correctness across a wide variety of program structures and edit scenarios, ensuring that the incremental parser maintains correctness even when reusing portions of the syntax tree.
+
 ## Incremental Parsing Architecture
 
 This project implements incremental parsing based on the techniques described in [US Patents 10,564,944](https://patents.google.com/patent/US10564944) and [11,372,630](https://patents.google.com/patent/US11372630B2) ("Efficient immutable syntax representation with incremental change") and [US Patent Application 2013/0152061](https://patents.google.com/patent/US20130152061A1) ("Full fidelity parse tree for programming language processing"), as used in the [Roslyn compiler platform](https://github.com/dotnet/roslyn). The core innovations are:
@@ -48,9 +64,15 @@ Following the principles described in [US20130152061A1](https://patents.google.c
 
 - **Complete Representation**: Unlike traditional parse trees that skip whitespace and comments, this augmented parse tree preserves all source information, making it suitable for code modification, generation, and incremental reparsing.
 
+### Error Handling
+
+The parser handles syntax errors gracefully by inserting missing tokens when expected tokens are absent and collecting unexpected tokens into error statement nodes. Each error produces a diagnostic that is attached to the relevant node in the syntax tree.
+
+**Error Aggregation**: Diagnostics are aggregated from child nodes up to their parent nodes throughout the tree. This means that every node in the tree exposes all errors that occur within its subtree. The root node of the syntax tree contains all errors in the entire program, making it easy to query the complete set of diagnostics from a single location. This aggregation is critical for incremental parsing scenarios, as it allows efficient error reporting even when only portions of the tree are rebuilt.
+
 #### Trivia Attachment Rules
 
-The lexer follows specific rules for attaching trivia (whitespace, newlines, comments) to tokens:
+The lexer follows specific rules for attaching trivia (whitespace, newlines, comments) to tokens. These rules are designed to support program editing scenarios: when nodes are assembled from existing code and rearranged (e.g., inserted, deleted, or moved), comments and indentation naturally follow the tokens they're attached to, appearing where you would expect them to be.
 
 1. **Leading Trivia**: Before scanning a token, the lexer scans leading trivia which includes:
    - Empty or comment lines preceding the token, including the newlines (newlines are separate trivia from the comment)
@@ -64,6 +86,8 @@ The lexer follows specific rules for attaching trivia (whitespace, newlines, com
 3. **Newline Handling**: A newline is always attached as trailing trivia of the last token on the same line. If there are multiple consecutive newlines, only the first one is trailing trivia of the preceding token. The second and any additional consecutive newlines (not being on the same line as the previous token) are leading trivia of the next token. Newlines that appear at the start of the input (before any token) are leading trivia of the first token. This ensures that every newline in the source is captured in the parse tree.
 
 4. **End of File**: The end of a file is treated as a special token in the compiler. Any empty lines before the EOF are attached as leading trivia to the EOF token.
+
+While this demo doesn't implement program editing, the trivia attachment rules were designed with this use case in mind, ensuring that code transformations preserve formatting and comments in an intuitive way.
 
 ### The Blender (`IncrementalSymbolStream`)
 

@@ -42,4 +42,3 @@ public sealed class Environment
         _values[name] = value;
     }
 }
-

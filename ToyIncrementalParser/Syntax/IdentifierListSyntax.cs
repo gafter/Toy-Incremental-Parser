@@ -50,4 +50,3 @@ public sealed class IdentifierListSyntax : SyntaxNode
         return list.Count == 0 ? Array.Empty<SyntaxToken>() : list.ToArray();
     }
 }
-

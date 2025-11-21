@@ -24,4 +24,3 @@ public sealed class CallExpressionSyntax : ExpressionSyntax
 
     public override NodeKind Kind => NodeKind.CallExpression;
 }
-

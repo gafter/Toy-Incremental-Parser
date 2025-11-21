@@ -22,4 +22,3 @@ public interface IText
     /// </summary>
     IText this[Range range] { get; }
 }
-

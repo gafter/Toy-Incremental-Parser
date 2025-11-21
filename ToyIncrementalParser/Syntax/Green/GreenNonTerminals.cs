@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using ToyIncrementalParser.Diagnostics;
 
 namespace ToyIncrementalParser.Syntax.Green;
@@ -8,46 +9,21 @@ internal sealed class GreenProgramNode : GreenInternalNode
     public GreenProgramNode(GreenNode statements, GreenToken endOfFile)
         : base(NodeKind.Program, new GreenNode?[] { statements, endOfFile })
     {
-        Statements = statements;
-        EndOfFileToken = endOfFile;
     }
 
-    public GreenNode Statements { get; }
+    public GreenNode Statements => Children[0]!;
 
-    public GreenToken EndOfFileToken { get; }
+    public GreenToken EndOfFileToken => (GreenToken)Children[1]!;
 }
 
 internal sealed class GreenStatementListNode : GreenInternalNode
 {
     public GreenStatementListNode(IReadOnlyList<GreenNode> statements)
-        : base(NodeKind.StatementList, BuildChildren(statements))
+        : base(NodeKind.StatementList, statements.ToArray())
     {
-        Statements = ToArray(statements);
     }
 
-    public IReadOnlyList<GreenNode> Statements { get; }
-
-    private static GreenNode?[] BuildChildren(IReadOnlyList<GreenNode> statements)
-    {
-        if (statements.Count == 0)
-            return System.Array.Empty<GreenNode?>();
-
-        var array = new GreenNode?[statements.Count];
-        for (var i = 0; i < statements.Count; i++)
-            array[i] = statements[i];
-        return array;
-    }
-
-    private static GreenNode[] ToArray(IReadOnlyList<GreenNode> statements)
-    {
-        if (statements.Count == 0)
-            return System.Array.Empty<GreenNode>();
-
-        var array = new GreenNode[statements.Count];
-        for (var i = 0; i < statements.Count; i++)
-            array[i] = statements[i];
-        return array;
-    }
+    public IReadOnlyList<GreenNode> Statements => Children.Cast<GreenNode>().ToArray();
 }
 
 internal sealed class GreenPrintStatementNode : GreenInternalNode
@@ -55,14 +31,11 @@ internal sealed class GreenPrintStatementNode : GreenInternalNode
     public GreenPrintStatementNode(GreenToken printKeyword, GreenNode expression, GreenToken semicolon)
         : base(NodeKind.PrintStatement, new GreenNode?[] { printKeyword, expression, semicolon })
     {
-        PrintKeyword = printKeyword;
-        Expression = expression;
-        SemicolonToken = semicolon;
     }
 
-    public GreenToken PrintKeyword { get; }
-    public GreenNode Expression { get; }
-    public GreenToken SemicolonToken { get; }
+    public GreenToken PrintKeyword => (GreenToken)Children[0]!;
+    public GreenNode Expression => Children[1]!;
+    public GreenToken SemicolonToken => (GreenToken)Children[2]!;
 }
 
 internal sealed class GreenReturnStatementNode : GreenInternalNode
@@ -70,14 +43,11 @@ internal sealed class GreenReturnStatementNode : GreenInternalNode
     public GreenReturnStatementNode(GreenToken returnKeyword, GreenNode expression, GreenToken semicolon)
         : base(NodeKind.ReturnStatement, new GreenNode?[] { returnKeyword, expression, semicolon })
     {
-        ReturnKeyword = returnKeyword;
-        Expression = expression;
-        SemicolonToken = semicolon;
     }
 
-    public GreenToken ReturnKeyword { get; }
-    public GreenNode Expression { get; }
-    public GreenToken SemicolonToken { get; }
+    public GreenToken ReturnKeyword => (GreenToken)Children[0]!;
+    public GreenNode Expression => Children[1]!;
+    public GreenToken SemicolonToken => (GreenToken)Children[2]!;
 }
 
 internal sealed class GreenAssignmentStatementNode : GreenInternalNode
@@ -85,18 +55,13 @@ internal sealed class GreenAssignmentStatementNode : GreenInternalNode
     public GreenAssignmentStatementNode(GreenToken letKeyword, GreenToken identifier, GreenToken equalsToken, GreenNode expression, GreenToken semicolon)
         : base(NodeKind.AssignmentStatement, new GreenNode?[] { letKeyword, identifier, equalsToken, expression, semicolon })
     {
-        LetKeyword = letKeyword;
-        Identifier = identifier;
-        EqualsToken = equalsToken;
-        Expression = expression;
-        SemicolonToken = semicolon;
     }
 
-    public GreenToken LetKeyword { get; }
-    public GreenToken Identifier { get; }
-    public GreenToken EqualsToken { get; }
-    public GreenNode Expression { get; }
-    public GreenToken SemicolonToken { get; }
+    public GreenToken LetKeyword => (GreenToken)Children[0]!;
+    public GreenToken Identifier => (GreenToken)Children[1]!;
+    public GreenToken EqualsToken => (GreenToken)Children[2]!;
+    public GreenNode Expression => Children[3]!;
+    public GreenToken SemicolonToken => (GreenToken)Children[4]!;
 }
 
 internal sealed class GreenExpressionBodyNode : GreenInternalNode
@@ -104,14 +69,11 @@ internal sealed class GreenExpressionBodyNode : GreenInternalNode
     public GreenExpressionBodyNode(GreenToken equalsToken, GreenNode expression, GreenToken semicolon)
         : base(NodeKind.ExpressionBody, new GreenNode?[] { equalsToken, expression, semicolon })
     {
-        EqualsToken = equalsToken;
-        Expression = expression;
-        SemicolonToken = semicolon;
     }
 
-    public GreenToken EqualsToken { get; }
-    public GreenNode Expression { get; }
-    public GreenToken SemicolonToken { get; }
+    public GreenToken EqualsToken => (GreenToken)Children[0]!;
+    public GreenNode Expression => Children[1]!;
+    public GreenToken SemicolonToken => (GreenToken)Children[2]!;
 }
 
 internal sealed class GreenStatementBodyNode : GreenInternalNode
@@ -119,14 +81,11 @@ internal sealed class GreenStatementBodyNode : GreenInternalNode
     public GreenStatementBodyNode(GreenToken beginToken, GreenNode statements, GreenToken endToken)
         : base(NodeKind.StatementBody, new GreenNode?[] { beginToken, statements, endToken })
     {
-        BeginKeyword = beginToken;
-        Statements = statements;
-        EndKeyword = endToken;
     }
 
-    public GreenToken BeginKeyword { get; }
-    public GreenNode Statements { get; }
-    public GreenToken EndKeyword { get; }
+    public GreenToken BeginKeyword => (GreenToken)Children[0]!;
+    public GreenNode Statements => Children[1]!;
+    public GreenToken EndKeyword => (GreenToken)Children[2]!;
 }
 
 internal sealed class GreenFunctionDefinitionNode : GreenInternalNode
@@ -140,20 +99,14 @@ internal sealed class GreenFunctionDefinitionNode : GreenInternalNode
         GreenNode body)
         : base(NodeKind.FunctionDefinition, new GreenNode?[] { defineKeyword, identifier, openParen, parameters, closeParen, body })
     {
-        DefineKeyword = defineKeyword;
-        Identifier = identifier;
-        OpenParenToken = openParen;
-        Parameters = parameters;
-        CloseParenToken = closeParen;
-        Body = body;
     }
 
-    public GreenToken DefineKeyword { get; }
-    public GreenToken Identifier { get; }
-    public GreenToken OpenParenToken { get; }
-    public GreenNode Parameters { get; }
-    public GreenToken CloseParenToken { get; }
-    public GreenNode Body { get; }
+    public GreenToken DefineKeyword => (GreenToken)Children[0]!;
+    public GreenToken Identifier => (GreenToken)Children[1]!;
+    public GreenToken OpenParenToken => (GreenToken)Children[2]!;
+    public GreenNode Parameters => Children[3]!;
+    public GreenToken CloseParenToken => (GreenToken)Children[4]!;
+    public GreenNode Body => Children[5]!;
 }
 
 internal sealed class GreenConditionalStatementNode : GreenInternalNode
@@ -168,22 +121,15 @@ internal sealed class GreenConditionalStatementNode : GreenInternalNode
         GreenToken fiKeyword)
         : base(NodeKind.ConditionalStatement, new GreenNode?[] { ifKeyword, condition, thenKeyword, thenStatements, elseKeyword, elseStatements, fiKeyword })
     {
-        IfKeyword = ifKeyword;
-        Condition = condition;
-        ThenKeyword = thenKeyword;
-        ThenStatements = thenStatements;
-        ElseKeyword = elseKeyword;
-        ElseStatements = elseStatements;
-        FiKeyword = fiKeyword;
     }
 
-    public GreenToken IfKeyword { get; }
-    public GreenNode Condition { get; }
-    public GreenToken ThenKeyword { get; }
-    public GreenNode ThenStatements { get; }
-    public GreenToken ElseKeyword { get; }
-    public GreenNode ElseStatements { get; }
-    public GreenToken FiKeyword { get; }
+    public GreenToken IfKeyword => (GreenToken)Children[0]!;
+    public GreenNode Condition => Children[1]!;
+    public GreenToken ThenKeyword => (GreenToken)Children[2]!;
+    public GreenNode ThenStatements => Children[3]!;
+    public GreenToken ElseKeyword => (GreenToken)Children[4]!;
+    public GreenNode ElseStatements => Children[5]!;
+    public GreenToken FiKeyword => (GreenToken)Children[6]!;
 }
 
 internal sealed class GreenLoopStatementNode : GreenInternalNode
@@ -196,51 +142,23 @@ internal sealed class GreenLoopStatementNode : GreenInternalNode
         GreenToken odKeyword)
         : base(NodeKind.LoopStatement, new GreenNode?[] { whileKeyword, condition, doKeyword, body, odKeyword })
     {
-        WhileKeyword = whileKeyword;
-        Condition = condition;
-        DoKeyword = doKeyword;
-        Body = body;
-        OdKeyword = odKeyword;
     }
 
-    public GreenToken WhileKeyword { get; }
-    public GreenNode Condition { get; }
-    public GreenToken DoKeyword { get; }
-    public GreenNode Body { get; }
-    public GreenToken OdKeyword { get; }
+    public GreenToken WhileKeyword => (GreenToken)Children[0]!;
+    public GreenNode Condition => Children[1]!;
+    public GreenToken DoKeyword => (GreenToken)Children[2]!;
+    public GreenNode Body => Children[3]!;
+    public GreenToken OdKeyword => (GreenToken)Children[4]!;
 }
 
 internal sealed class GreenErrorStatementNode : GreenInternalNode
 {
     public GreenErrorStatementNode(IReadOnlyList<GreenToken> tokens, IReadOnlyList<Diagnostic>? diagnostics = null)
-        : base(NodeKind.ErrorStatement, BuildChildren(tokens), diagnostics)
+        : base(NodeKind.ErrorStatement, tokens.ToArray(), diagnostics)
     {
-        Tokens = ToArray(tokens);
     }
 
-    public IReadOnlyList<GreenToken> Tokens { get; }
-
-    private static GreenNode?[] BuildChildren(IReadOnlyList<GreenToken> tokens)
-    {
-        if (tokens.Count == 0)
-            return System.Array.Empty<GreenNode?>();
-
-        var array = new GreenNode?[tokens.Count];
-        for (var i = 0; i < tokens.Count; i++)
-            array[i] = tokens[i];
-        return array;
-    }
-
-    private static GreenToken[] ToArray(IReadOnlyList<GreenToken> tokens)
-    {
-        if (tokens.Count == 0)
-            return System.Array.Empty<GreenToken>();
-
-        var array = new GreenToken[tokens.Count];
-        for (var i = 0; i < tokens.Count; i++)
-            array[i] = tokens[i];
-        return array;
-    }
+    public IReadOnlyList<GreenToken> Tokens => System.Array.AsReadOnly(Children.Cast<GreenToken>().ToArray());
 }
 
 internal sealed class GreenExpressionListNode : GreenInternalNode
@@ -277,27 +195,9 @@ internal sealed class GreenExpressionListNode : GreenInternalNode
         return array;
     }
 
-    private static GreenNode[] ToArray(IReadOnlyList<GreenNode> expressions)
-    {
-        if (expressions.Count == 0)
-            return System.Array.Empty<GreenNode>();
+    private static GreenNode[] ToArray(IReadOnlyList<GreenNode> expressions) => expressions.ToArray();
 
-        var array = new GreenNode[expressions.Count];
-        for (var i = 0; i < expressions.Count; i++)
-            array[i] = expressions[i];
-        return array;
-    }
-
-    private static GreenToken[] ToArray(IReadOnlyList<GreenToken> tokens)
-    {
-        if (tokens.Count == 0)
-            return System.Array.Empty<GreenToken>();
-
-        var array = new GreenToken[tokens.Count];
-        for (var i = 0; i < tokens.Count; i++)
-            array[i] = tokens[i];
-        return array;
-    }
+    private static GreenToken[] ToArray(IReadOnlyList<GreenToken> tokens) => tokens.ToArray();
 }
 
 internal sealed class GreenIdentifierListNode : GreenInternalNode
@@ -330,16 +230,7 @@ internal sealed class GreenIdentifierListNode : GreenInternalNode
         return array;
     }
 
-    private static GreenToken[] ToArray(IReadOnlyList<GreenToken> tokens)
-    {
-        if (tokens.Count == 0)
-            return System.Array.Empty<GreenToken>();
-
-        var array = new GreenToken[tokens.Count];
-        for (var i = 0; i < tokens.Count; i++)
-            array[i] = tokens[i];
-        return array;
-    }
+    private static GreenToken[] ToArray(IReadOnlyList<GreenToken> tokens) => tokens.ToArray();
 }
 
 internal sealed class GreenBinaryExpressionNode : GreenInternalNode
@@ -347,14 +238,11 @@ internal sealed class GreenBinaryExpressionNode : GreenInternalNode
     public GreenBinaryExpressionNode(GreenNode left, GreenToken operatorToken, GreenNode right)
         : base(NodeKind.BinaryExpression, new GreenNode?[] { left, operatorToken, right })
     {
-        Left = left;
-        OperatorToken = operatorToken;
-        Right = right;
     }
 
-    public GreenNode Left { get; }
-    public GreenToken OperatorToken { get; }
-    public GreenNode Right { get; }
+    public GreenNode Left => Children[0]!;
+    public GreenToken OperatorToken => (GreenToken)Children[1]!;
+    public GreenNode Right => Children[2]!;
 }
 
 internal sealed class GreenUnaryExpressionNode : GreenInternalNode
@@ -362,12 +250,10 @@ internal sealed class GreenUnaryExpressionNode : GreenInternalNode
     public GreenUnaryExpressionNode(GreenToken operatorToken, GreenNode operand)
         : base(NodeKind.UnaryExpression, new GreenNode?[] { operatorToken, operand })
     {
-        OperatorToken = operatorToken;
-        Operand = operand;
     }
 
-    public GreenToken OperatorToken { get; }
-    public GreenNode Operand { get; }
+    public GreenToken OperatorToken => (GreenToken)Children[0]!;
+    public GreenNode Operand => Children[1]!;
 }
 
 internal sealed class GreenParenthesizedExpressionNode : GreenInternalNode
@@ -375,14 +261,11 @@ internal sealed class GreenParenthesizedExpressionNode : GreenInternalNode
     public GreenParenthesizedExpressionNode(GreenToken openParen, GreenNode expression, GreenToken closeParen)
         : base(NodeKind.ParenthesizedExpression, new GreenNode?[] { openParen, expression, closeParen })
     {
-        OpenParenToken = openParen;
-        Expression = expression;
-        CloseParenToken = closeParen;
     }
 
-    public GreenToken OpenParenToken { get; }
-    public GreenNode Expression { get; }
-    public GreenToken CloseParenToken { get; }
+    public GreenToken OpenParenToken => (GreenToken)Children[0]!;
+    public GreenNode Expression => Children[1]!;
+    public GreenToken CloseParenToken => (GreenToken)Children[2]!;
 }
 
 internal sealed class GreenCallExpressionNode : GreenInternalNode
@@ -390,16 +273,12 @@ internal sealed class GreenCallExpressionNode : GreenInternalNode
     public GreenCallExpressionNode(GreenToken identifier, GreenToken openParen, GreenNode arguments, GreenToken closeParen)
         : base(NodeKind.CallExpression, new GreenNode?[] { identifier, openParen, arguments, closeParen })
     {
-        Identifier = identifier;
-        OpenParenToken = openParen;
-        Arguments = arguments;
-        CloseParenToken = closeParen;
     }
 
-    public GreenToken Identifier { get; }
-    public GreenToken OpenParenToken { get; }
-    public GreenNode Arguments { get; }
-    public GreenToken CloseParenToken { get; }
+    public GreenToken Identifier => (GreenToken)Children[0]!;
+    public GreenToken OpenParenToken => (GreenToken)Children[1]!;
+    public GreenNode Arguments => Children[2]!;
+    public GreenToken CloseParenToken => (GreenToken)Children[3]!;
 }
 
 internal sealed class GreenIdentifierExpressionNode : GreenInternalNode
@@ -407,10 +286,9 @@ internal sealed class GreenIdentifierExpressionNode : GreenInternalNode
     public GreenIdentifierExpressionNode(GreenToken identifier)
         : base(NodeKind.IdentifierExpression, new GreenNode?[] { identifier })
     {
-        Identifier = identifier;
     }
 
-    public GreenToken Identifier { get; }
+    public GreenToken Identifier => (GreenToken)Children[0]!;
 }
 
 internal sealed class GreenNumericLiteralExpressionNode : GreenInternalNode
@@ -418,10 +296,9 @@ internal sealed class GreenNumericLiteralExpressionNode : GreenInternalNode
     public GreenNumericLiteralExpressionNode(GreenToken numberToken)
         : base(NodeKind.NumericLiteralExpression, new GreenNode?[] { numberToken })
     {
-        NumberToken = numberToken;
     }
 
-    public GreenToken NumberToken { get; }
+    public GreenToken NumberToken => (GreenToken)Children[0]!;
 }
 
 internal sealed class GreenStringLiteralExpressionNode : GreenInternalNode
@@ -429,10 +306,9 @@ internal sealed class GreenStringLiteralExpressionNode : GreenInternalNode
     public GreenStringLiteralExpressionNode(GreenToken stringToken)
         : base(NodeKind.StringLiteralExpression, new GreenNode?[] { stringToken })
     {
-        StringToken = stringToken;
     }
 
-    public GreenToken StringToken { get; }
+    public GreenToken StringToken => (GreenToken)Children[0]!;
 }
 
 internal sealed class GreenMissingExpressionNode : GreenInternalNode
@@ -440,9 +316,7 @@ internal sealed class GreenMissingExpressionNode : GreenInternalNode
     public GreenMissingExpressionNode(GreenToken missingToken)
         : base(NodeKind.MissingExpression, new GreenNode?[] { missingToken })
     {
-        MissingToken = missingToken;
     }
 
-    public GreenToken MissingToken { get; }
+    public GreenToken MissingToken => (GreenToken)Children[0]!;
 }
-

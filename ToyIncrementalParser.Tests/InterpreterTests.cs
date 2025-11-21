@@ -95,4 +95,3 @@ public class InterpreterTests
         Assert.Contains("expected 2 arguments but received 1", exception.Message);
     }
 }
-

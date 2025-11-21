@@ -8,6 +8,8 @@ public readonly struct TextChange
 {
     public TextChange(Range span, int newLength)
     {
+        if (span.Start.IsFromEnd || span.End.IsFromEnd)
+            throw new ArgumentException("Span must use absolute positions, not relative end positions.", nameof(span));
         Span = span;
         ArgumentOutOfRangeException.ThrowIfNegative(newLength);
         NewLength = newLength;
@@ -107,5 +109,3 @@ public readonly struct TextChange
     //     return FromTextDifference((IText)oldText, (IText)newText);
     // }
 }
-
-
