@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Text;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
 using Xunit;

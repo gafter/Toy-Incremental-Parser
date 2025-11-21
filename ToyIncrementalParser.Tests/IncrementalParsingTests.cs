@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using Newtonsoft.Json.Bson;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
@@ -36,80 +35,53 @@ public sealed class IncrementalParsingTests
         Rope replacementText,
         string caseIdentifier)
     {
-        // Compute test case details before parsing (so we can print them even if parsing fails)
-        var commonPrefixStr = originalText[0..deletedSpan.Start];
-        var deletedTextStr = originalText[deletedSpan.Start..deletedSpan.End];
-        var insertedTextStr = originalText[insertedSpan.Start..insertedSpan.End];
-        var commonSuffixStr = originalText[deletedSpan.End..originalText.Length];
-        
-        var originalTree = SyntaxTree.Parse(originalText);
-        var change = new TextChange(deletedSpan, replacementText.Length);
-        var incrementalTree = originalTree.WithChange(change, replacementText);
-
-        Rope editedRope = change.ApplyTo(originalText, replacementText);
-        SyntaxTree reparsedTree;
+        SyntaxTree originalTree;
         try
         {
-            reparsedTree = SyntaxTree.Parse(editedRope);
+            originalTree = SyntaxTree.Parse(originalText);
         }
         catch (Exception parseEx)
         {
-            // If full reparse fails, print the test case details and rethrow
-            var (targetOffset, targetLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
-            var (sourceOffset, sourceLength) = insertedSpan.GetOffsetAndLength(originalText.Length);
-            System.Console.WriteLine($"Full reparse failed for {caseIdentifier}");
+            // If original parse fails, print the test case details and rethrow
+            System.Console.WriteLine($"originalText: @\"{originalText.ToString().Replace("\"", "\"\"")}\"");
+            System.Console.WriteLine($"Original parse failed for {caseIdentifier}");
+            System.Console.WriteLine($"Exception: {parseEx.GetType().Name}: {parseEx.Message}");
+            throw;
+        }
+        
+        var change = new TextChange(deletedSpan, replacementText.Length);
+        string stage = "Incremental change";
+        try
+        {
+            var incrementalTree = originalTree.WithChange(change, replacementText);
+
+            stage = "Full reparse";
+            Rope editedRope = change.ApplyTo(originalText, replacementText);
+            var reparsedTree = SyntaxTree.Parse(editedRope);
+
+            stage = "Trees equivalent";
+            AssertTreesEquivalent(reparsedTree, incrementalTree);
+            
+            stage = "Diagnostics equal";
+            // Verify that diagnostics match - errors bubble up to the root
+            AssertDiagnosticsEqual(reparsedTree.Diagnostics, incrementalTree.Diagnostics);
+        }
+        catch (Exception changeEx)
+        {
+            var commonPrefixStr = originalText[0..deletedSpan.Start];
+            var deletedTextStr = originalText[deletedSpan.Start..deletedSpan.End];
+            var insertedTextStr = originalText[insertedSpan.Start..insertedSpan.End];
+            var commonSuffixStr = originalText[deletedSpan.End..originalText.Length];
+
+            // If incremental change fails, print the test case details and rethrow
+            System.Console.WriteLine($"{stage} failed for {caseIdentifier}");
             System.Console.WriteLine($"For custom test case:");
             System.Console.WriteLine($"commonPrefix: @\"{commonPrefixStr.ToString().Replace("\"", "\"\"")}\"");
             System.Console.WriteLine($"deletedText: @\"{deletedTextStr.ToString().Replace("\"", "\"\"")}\"");
             System.Console.WriteLine($"insertedText: @\"{insertedTextStr.ToString().Replace("\"", "\"\"")}\"");
             System.Console.WriteLine($"commonSuffix: @\"{commonSuffixStr.ToString().Replace("\"", "\"\"")}\"");
-            System.Console.WriteLine($"Exception: {parseEx.GetType().Name}: {parseEx.Message}");
+            System.Console.WriteLine($"Exception: {changeEx.GetType().Name}: {changeEx.Message}");
             throw;
-        }
-
-        try
-        {
-            AssertTreesEquivalent(reparsedTree, incrementalTree);
-            
-            // Verify that diagnostics match - errors bubble up to the root
-            AssertDiagnosticsEqual(reparsedTree.Diagnostics, incrementalTree.Diagnostics);
-        }
-        catch (Exception ex)
-        {
-            var (targetOffset, targetLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
-            var (sourceOffset, sourceLength) = insertedSpan.GetOffsetAndLength(originalText.Length);
-            var changeStart = change.Span.Start;
-            var changeEnd = change.Span.End;
-            var changeNewLength = change.NewLength;
-
-            var originalTextPreview = originalText.Length > 200 
-                ? originalText[0..200] + "..." 
-                : originalText;
-
-            var replacementTextPreview = replacementText.Length > 100
-                ? replacementText[0..100] + "..."
-                : replacementText;
-
-            // Use the already computed test case details
-            
-            Assert.Fail(
-                $"{caseIdentifier} failed\n" +
-                $"Original text (length={originalText?.Length ?? 0}): {originalTextPreview}\n" +
-                $"Target span: {deletedSpan} (offset={targetOffset}, length={targetLength})\n" +
-                $"Source span: {insertedSpan} (offset={sourceOffset}, length={sourceLength})\n" +
-                $"Replacement text (length={replacementText?.Length ?? 0}): {replacementTextPreview}\n" +
-                $"TextChange: Span={change.Span}, NewLength={changeNewLength}\n" +
-                $"Change details: start={changeStart}, end={changeEnd}, newLength={changeNewLength}\n" +
-                $"\n" +
-                $"For custom test case:\n" +
-                $"commonPrefix: @\"{commonPrefixStr.ToString().Replace("\"", "\"\"")}\"\n" +
-                $"deletedText: @\"{deletedTextStr.ToString().Replace("\"", "\"\"")}\"\n" +
-                $"insertedText: @\"{insertedTextStr.ToString().Replace("\"", "\"\"")}\"\n" +
-                $"commonSuffix: @\"{commonSuffixStr.ToString().Replace("\"", "\"\"")}\"\n" +
-                $"\n" +
-                $"Exception type: {ex.GetType().Name}\n" +
-                $"Exception message: {ex.Message}\n" +
-                $"Stack trace:\n{ex.StackTrace}");
         }
     }
 

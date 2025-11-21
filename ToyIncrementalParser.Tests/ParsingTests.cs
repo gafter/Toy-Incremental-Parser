@@ -1,7 +1,5 @@
 using System.Linq;
-using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
-using ToyIncrementalParser.Text;
 using Xunit;
 
 namespace ToyIncrementalParser.Tests;

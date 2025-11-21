@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
 

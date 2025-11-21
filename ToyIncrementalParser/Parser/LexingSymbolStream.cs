@@ -1,4 +1,3 @@
-using System;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
