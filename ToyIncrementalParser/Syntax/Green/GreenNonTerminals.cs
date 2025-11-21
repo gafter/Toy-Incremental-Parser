@@ -154,7 +154,7 @@ internal sealed class GreenLoopStatementNode : GreenInternalNode
 internal sealed class GreenErrorStatementNode : GreenInternalNode
 {
     public GreenErrorStatementNode(IReadOnlyList<GreenToken> tokens, IReadOnlyList<Diagnostic>? diagnostics = null)
-        : base(NodeKind.ErrorStatement, tokens.ToArray())
+        : base(NodeKind.ErrorStatement, tokens.ToArray(), diagnostics)
     {
     }
 
