@@ -35,4 +35,3 @@ public sealed class NumericLiteralExpressionSyntax : ExpressionSyntax
         return 0;
     }
 }
-

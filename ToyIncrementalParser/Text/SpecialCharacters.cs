@@ -10,4 +10,3 @@ public static class SpecialCharacters
     /// </summary>
     public const char EndOfFile = '\uFFFF';
 }
-

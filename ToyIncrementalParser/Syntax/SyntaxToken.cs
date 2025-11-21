@@ -15,9 +15,10 @@ public sealed class SyntaxToken : SyntaxNode
         : base(syntaxTree, parent, greenToken, position)
     {
         // Compute trivia during construction
-        var tokenStart = Position + greenToken.LeadingWidth;
+        var fullSpanStart = FullSpan.Start.Value;
+        var tokenStart = fullSpanStart + greenToken.LeadingWidth;
         var tokenEnd = tokenStart + greenToken.Width;
-        _leadingTrivia = CreateTriviaList(greenToken.LeadingTrivia, Position);
+        _leadingTrivia = CreateTriviaList(greenToken.LeadingTrivia, fullSpanStart);
         _trailingTrivia = CreateTriviaList(greenToken.TrailingTrivia, tokenEnd);
     }
 
@@ -25,9 +26,19 @@ public sealed class SyntaxToken : SyntaxNode
 
     public override NodeKind Kind => Green.Kind;
 
-    public override Range Span => (Position + GreenToken.LeadingWidth)..(Position + GreenToken.LeadingWidth + GreenToken.Width);
+    public override Range Span
+    {
+        get
+        {
+            var start = FullSpan.Start.Value + GreenToken.LeadingWidth;
+            var end = start + GreenToken.Width;
+            return start..end;
+        }
+    }
 
-    public string Text => SyntaxTree.Text[Span].ToString() ?? string.Empty;
+    public override string Text => SyntaxTree.Text[Span].ToString() ?? string.Empty;
+
+    public override string FullText => SyntaxTree.Text[FullSpan].ToString() ?? string.Empty;
 
     public bool IsMissing => GreenToken.IsMissing;
 

@@ -21,4 +21,3 @@ public sealed class ReturnStatementSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.ReturnStatement;
 }
-

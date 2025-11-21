@@ -37,4 +37,3 @@ public sealed class ConditionalStatementSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.ConditionalStatement;
 }
-

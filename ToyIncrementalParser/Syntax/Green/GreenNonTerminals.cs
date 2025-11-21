@@ -320,4 +320,3 @@ internal sealed class GreenMissingExpressionNode : GreenInternalNode
 
     public GreenToken MissingToken => (GreenToken)Children[0]!;
 }
-

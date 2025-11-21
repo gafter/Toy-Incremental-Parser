@@ -15,7 +15,3 @@ internal interface ISymbolStream
 
     bool TryTakeNonTerminal(NodeKind kind, out GreenNode node);
 }
-
-
-
-

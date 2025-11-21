@@ -30,7 +30,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
 
     public SyntaxNode? Parent { get; }
 
-    internal int Position { get; }
+    private int Position { get; }
 
     public abstract NodeKind Kind { get; }
 
@@ -52,6 +52,9 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         }
     }
 
+    private int FullSpanStart => FullSpan.Start.Value;
+    private int FullSpanEnd => FullSpan.End.Value;
+
     public virtual IEnumerable<SyntaxNode> GetChildren()
     {
         foreach (var child in Children)
@@ -64,6 +67,16 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
     public IReadOnlyList<SyntaxTrivia> LeadingTrivia => _leadingTrivia;
 
     public IReadOnlyList<SyntaxTrivia> TrailingTrivia => _trailingTrivia;
+
+    /// <summary>
+    /// Gets the text of this node excluding leading and trailing trivia.
+    /// </summary>
+    public virtual string Text => SyntaxTree.Text[Span].ToString() ?? string.Empty;
+
+    /// <summary>
+    /// Gets the full text of this node including leading and trailing trivia.
+    /// </summary>
+    public virtual string FullText => SyntaxTree.Text[FullSpan].ToString() ?? string.Empty;
 
 
     public bool Equals(SyntaxNode? other)
@@ -201,7 +214,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
             return Array.Empty<SyntaxNode?>();
 
         var array = new SyntaxNode?[count];
-        var position = Position;
+        var position = FullSpanStart;
 
         for (var i = 0; i < count; i++)
         {
@@ -223,7 +236,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         // So we compute from the green node directly
         if (Green is GreenToken greenToken)
         {
-            return CreateTriviaList(greenToken.LeadingTrivia, Position);
+            return CreateTriviaList(greenToken.LeadingTrivia, FullSpanStart);
         }
         
         // For non-token nodes, we need to find the first token
@@ -232,8 +245,8 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         if (firstToken is null)
             return Array.Empty<SyntaxTrivia>();
         
-        // The first token's leading trivia always starts at the node's position
-        return CreateTriviaList(firstToken.LeadingTrivia, Position);
+        // The first token's leading trivia always starts at the node's FullSpan start
+        return CreateTriviaList(firstToken.LeadingTrivia, FullSpanStart);
     }
 
     private IReadOnlyList<SyntaxTrivia> ComputeTrailingTrivia()
@@ -242,7 +255,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
         // So we compute from the green node directly
         if (Green is GreenToken greenToken)
         {
-            var tokenStartPos = Position + greenToken.LeadingWidth;
+            var tokenStartPos = FullSpanStart + greenToken.LeadingWidth;
             var trailingPos = tokenStartPos + greenToken.Width;
             return CreateTriviaList(greenToken.TrailingTrivia, trailingPos);
         }
@@ -254,7 +267,7 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
             return Array.Empty<SyntaxTrivia>();
         
         // The last token's trailing trivia starts at the end of the node minus the trailing trivia width
-        var trailingStart = Position + Green.FullWidth - lastToken.TrailingWidth;
+        var trailingStart = FullSpanEnd - lastToken.TrailingWidth;
         return CreateTriviaList(lastToken.TrailingTrivia, trailingStart);
     }
 
@@ -277,4 +290,3 @@ public abstract class SyntaxNode : IEquatable<SyntaxNode>
     }
 
 }
-

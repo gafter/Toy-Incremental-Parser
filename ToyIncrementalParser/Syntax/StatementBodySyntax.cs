@@ -21,4 +21,3 @@ public sealed class StatementBodySyntax : FunctionBodySyntax
 
     public override NodeKind Kind => NodeKind.StatementBody;
 }
-

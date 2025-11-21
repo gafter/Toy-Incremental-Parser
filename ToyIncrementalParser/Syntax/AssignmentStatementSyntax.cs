@@ -27,4 +27,3 @@ public sealed class AssignmentStatementSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.AssignmentStatement;
 }
-

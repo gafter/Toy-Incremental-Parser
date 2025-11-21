@@ -220,4 +220,3 @@ public class ParsingTests
         Assert.Equal(NodeKind.SemicolonToken, error.Tokens[2].Kind);
     }
 }
-

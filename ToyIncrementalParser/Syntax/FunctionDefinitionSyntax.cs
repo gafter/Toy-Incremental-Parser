@@ -34,4 +34,3 @@ public sealed class FunctionDefinitionSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.FunctionDefinition;
 }
-

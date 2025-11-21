@@ -87,13 +87,6 @@ internal sealed class Lexer
         return new LexedToken(token, fullStart, spanStart);
     }
 
-    private static bool CanStartToken(char ch)
-    {
-        // Check if this character can start a token
-        return char.IsLetter(ch) || ch == '_' || char.IsDigit(ch) ||
-               ch is ';' or '(' or ')' or '=' or '+' or '-' or '*' or '/' or ',' or '"';
-    }
-
     private NodeKind ScanToken(IList<Diagnostic> diagnostics)
     {
         var current = _source.PeekCharacter();
@@ -405,13 +398,4 @@ internal sealed class Lexer
         var text = new string(chars.ToArray());
         return new GreenTrivia(NodeKind.CommentTrivia, text);
     }
-
-    private static int ComputeTriviaWidth(GreenTrivia[] trivia)
-    {
-        var width = 0;
-        for (var i = 0; i < trivia.Length; i++)
-            width += trivia[i].FullWidth;
-        return width;
-    }
 }
-

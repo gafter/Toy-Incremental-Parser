@@ -86,4 +86,3 @@ internal static class GreenFactory
     public static GreenMissingExpressionNode MissingExpression(GreenToken missingToken) =>
         new(missingToken);
 }
-

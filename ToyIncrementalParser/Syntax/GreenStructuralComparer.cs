@@ -142,4 +142,3 @@ internal static class GreenStructuralComparer
         return true;
     }
 }
-

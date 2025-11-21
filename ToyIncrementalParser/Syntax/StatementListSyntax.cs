@@ -34,4 +34,3 @@ public sealed class StatementListSyntax : SyntaxNode
         return result;
     }
 }
-

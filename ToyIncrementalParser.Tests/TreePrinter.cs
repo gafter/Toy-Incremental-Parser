@@ -42,18 +42,20 @@ public static class TreePrinter
         builder.Append(node.Kind);
         
         // Print FullSpan text (including leading and trailing trivia)
-        var (fullOffset, fullLength) = node.FullSpan.GetOffsetAndLength(int.MaxValue);
+        var fullStart = node.FullSpan.Start.Value;
+        var fullEnd = node.FullSpan.End.Value;
         var fullText = GetTextFromSpan(node.SyntaxTree.Text, node.FullSpan);
         var escapedFullText = EscapeText(fullText);
-        builder.Append($" FullSpan={fullOffset}..{fullOffset + fullLength} FullText=\"{escapedFullText}\"");
+        builder.Append($" FullSpan={fullStart}..{fullEnd} FullText=\"{escapedFullText}\"");
         
         // Also show Span for non-tokens
         if (!(node is SyntaxToken))
         {
-            var (offset, length) = node.Span.GetOffsetAndLength(int.MaxValue);
+            var spanStart = node.Span.Start.Value;
+            var spanEnd = node.Span.End.Value;
             var text = GetTextFromSpan(node.SyntaxTree.Text, node.Span);
             var escapedText = EscapeText(text);
-            builder.Append($" Span={offset}..{offset + length} Text=\"{escapedText}\"");
+            builder.Append($" Span={spanStart}..{spanEnd} Text=\"{escapedText}\"");
         }
         
         // Print Errors
@@ -65,8 +67,9 @@ public static class TreePrinter
                 if (i > 0)
                     builder.Append(", ");
                 var diag = node.Diagnostics[i];
-                var (diagOffset, diagLength) = diag.Span.GetOffsetAndLength(int.MaxValue);
-                builder.Append($"\"{EscapeText(diag.Message)}\"@{diagOffset}..{diagOffset + diagLength}");
+                var diagStart = diag.Span.Start.Value;
+                var diagEnd = diag.Span.End.Value;
+                builder.Append($"\"{EscapeText(diag.Message)}\"@{diagStart}..{diagEnd}");
             }
             builder.Append("]");
         }
@@ -123,4 +126,3 @@ public static class TreePrinter
             .Replace("\t", "\\t");
     }
 }
-

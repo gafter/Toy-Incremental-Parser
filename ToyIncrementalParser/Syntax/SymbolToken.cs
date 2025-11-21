@@ -19,7 +19,3 @@ internal readonly struct SymbolToken
 
     public int FullEnd => FullStart + Token.FullWidth;
 }
-
-
-
-

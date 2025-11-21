@@ -55,4 +55,3 @@ public sealed class ExpressionListSyntax : SyntaxNode
             yield return GetChild(i);
     }
 }
-

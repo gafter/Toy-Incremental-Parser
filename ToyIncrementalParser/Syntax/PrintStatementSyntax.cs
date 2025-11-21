@@ -21,4 +21,3 @@ public sealed class PrintStatementSyntax : StatementSyntax
 
     public override NodeKind Kind => NodeKind.PrintStatement;
 }
-

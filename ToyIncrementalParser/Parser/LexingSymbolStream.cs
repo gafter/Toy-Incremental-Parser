@@ -58,7 +58,3 @@ internal sealed class LexingSymbolStream : ISymbolStream
         return false;
     }
 }
-
-
-
-

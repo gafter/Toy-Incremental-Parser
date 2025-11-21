@@ -133,4 +133,3 @@ internal abstract class GreenInternalNode : GreenNode
     }
 
 }
-
