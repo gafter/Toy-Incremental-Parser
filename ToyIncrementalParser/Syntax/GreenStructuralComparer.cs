@@ -125,12 +125,12 @@ internal static class GreenStructuralComparer
         return true;
     }
 
-    internal static bool TriviaEquals(GreenTrivia[] left, GreenTrivia[] right)
+    internal static bool TriviaEquals(IReadOnlyList<GreenTrivia> left, IReadOnlyList<GreenTrivia> right)
     {
-        if (left.Length != right.Length)
+        if (left.Count != right.Count)
             return false;
 
-        for (var i = 0; i < left.Length; i++)
+        for (var i = 0; i < left.Count; i++)
         {
             if (left[i].Kind != right[i].Kind)
                 return false;

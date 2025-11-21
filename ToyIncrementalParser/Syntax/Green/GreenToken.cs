@@ -1,10 +1,15 @@
 using System.Collections.Generic;
+using System.Linq;
 using ToyIncrementalParser.Diagnostics;
 
 namespace ToyIncrementalParser.Syntax.Green;
 
 internal sealed class GreenToken : GreenNode
 {
+    private readonly GreenTrivia[] _leadingTrivia;
+    private readonly GreenTrivia[] _trailingTrivia;
+    private readonly int _tokenWidth;
+
     public GreenToken(
         NodeKind kind,
         int width,
@@ -12,57 +17,59 @@ internal sealed class GreenToken : GreenNode
         IReadOnlyList<GreenTrivia>? trailingTrivia = null,
         bool isMissing = false,
         IReadOnlyList<Diagnostic>? diagnostics = null)
-        : base(kind, 
-               CombineTokenDiagnostics(leadingTrivia, trailingTrivia, diagnostics, width), 
-               ComputeTokenContainsDiagnostics(leadingTrivia, trailingTrivia, diagnostics))
+        : base(kind, PrepareTokenDiagnostics(leadingTrivia, trailingTrivia, diagnostics, width, out var containsDiagnostics), containsDiagnostics)
     {
-        Width = width;
+        _tokenWidth = width;
         IsMissing = isMissing;
-        LeadingTrivia = ToArray(leadingTrivia);
-        TrailingTrivia = ToArray(trailingTrivia);
-
-        LeadingWidth = ComputeTriviaWidth(LeadingTrivia);
-        TrailingWidth = ComputeTriviaWidth(TrailingTrivia);
-        FullWidth = LeadingWidth + Width + TrailingWidth;
+        _leadingTrivia = leadingTrivia?.ToArray() ?? System.Array.Empty<GreenTrivia>();
+        _trailingTrivia = trailingTrivia?.ToArray() ?? System.Array.Empty<GreenTrivia>();
+        
+        _leadingWidth = _leadingTrivia.Sum(t => t.FullWidth);
+        _trailingWidth = _trailingTrivia.Sum(t => t.FullWidth);
+        _fullWidth = _leadingWidth + width + _trailingWidth;
     }
+
 
     public override bool IsToken => true;
 
     public bool IsMissing { get; }
 
-    public GreenTrivia[] LeadingTrivia { get; }
+    public override IReadOnlyList<GreenTrivia> LeadingTrivia => _leadingTrivia;
 
-    public GreenTrivia[] TrailingTrivia { get; }
+    public override IReadOnlyList<GreenTrivia> TrailingTrivia => _trailingTrivia;
 
-    public int LeadingWidth { get; }
+    private readonly int _leadingWidth;
+    private readonly int _trailingWidth;
+    private readonly int _fullWidth;
 
-    public int TrailingWidth { get; }
+    public override int LeadingWidth => _leadingWidth;
+
+    public override int TrailingWidth => _trailingWidth;
 
     public override int SlotCount => 0;
 
     public override GreenNode? GetSlot(int index) => null;
 
-    public override int Width { get; }
+    public override int Width => _tokenWidth;
 
-    public override int FullWidth { get; }
+    public override int FullWidth => _fullWidth;
 
-    private static GreenTrivia[] ToArray(IReadOnlyList<GreenTrivia>? trivia)
+    public override GreenToken? FirstToken => this;
+
+    public override GreenToken? LastToken => this;
+
+
+
+    private static Diagnostic[] PrepareTokenDiagnostics(
+        IReadOnlyList<GreenTrivia>? leadingTrivia,
+        IReadOnlyList<GreenTrivia>? trailingTrivia,
+        IReadOnlyList<Diagnostic>? diagnostics,
+        int tokenWidth,
+        out bool containsDiagnostics)
     {
-        if (trivia is null || trivia.Count == 0)
-            return System.Array.Empty<GreenTrivia>();
-
-        var array = new GreenTrivia[trivia.Count];
-        for (var i = 0; i < trivia.Count; i++)
-            array[i] = trivia[i];
-        return array;
-    }
-
-    private static int ComputeTriviaWidth(GreenTrivia[] trivia)
-    {
-        var width = 0;
-        for (var i = 0; i < trivia.Length; i++)
-            width += trivia[i].FullWidth;
-        return width;
+        var combined = CombineTokenDiagnostics(leadingTrivia, trailingTrivia, diagnostics, tokenWidth);
+        containsDiagnostics = combined.Length > 0;
+        return combined;
     }
 
     private static Diagnostic[] CombineTokenDiagnostics(
@@ -84,13 +91,7 @@ internal sealed class GreenToken : GreenNode
                 foreach (var diagnostic in trivia.Diagnostics)
                 {
                     list ??= new List<Diagnostic>();
-                    // Diagnostic is relative to trivia, so add trivia's position to make it relative to token
-                    var (diagOffset, diagLength) = diagnostic.Span.GetOffsetAndLength(int.MaxValue);
-                    var relativeOffset = diagOffset + position;
-                    if (relativeOffset < 0)
-                        relativeOffset = 0;
-                    var relativeSpan = relativeOffset..(relativeOffset + diagLength);
-                    list.Add(new Diagnostic(diagnostic.Message, relativeSpan));
+                    list.Add(AdjustDiagnosticSpan(diagnostic, position));
                 }
                 position += trivia.FullWidth;
             }
@@ -103,13 +104,7 @@ internal sealed class GreenToken : GreenNode
             list ??= new List<Diagnostic>();
             foreach (var diagnostic in diagnostics)
             {
-                // Diagnostic is relative to the token itself, so add position (after leading trivia)
-                var (diagOffset, diagLength) = diagnostic.Span.GetOffsetAndLength(int.MaxValue);
-                var relativeOffset = diagOffset + position;
-                if (relativeOffset < 0)
-                    relativeOffset = 0;
-                var relativeSpan = relativeOffset..(relativeOffset + diagLength);
-                list.Add(new Diagnostic(diagnostic.Message, relativeSpan));
+                list.Add(AdjustDiagnosticSpan(diagnostic, position));
             }
         }
 
@@ -124,13 +119,7 @@ internal sealed class GreenToken : GreenNode
                 foreach (var diagnostic in trivia.Diagnostics)
                 {
                     list ??= new List<Diagnostic>();
-                    // Diagnostic is relative to trivia, so add trivia's position to make it relative to token
-                    var (diagOffset, diagLength) = diagnostic.Span.GetOffsetAndLength(int.MaxValue);
-                    var relativeOffset = diagOffset + position;
-                    if (relativeOffset < 0)
-                        relativeOffset = 0;
-                    var relativeSpan = relativeOffset..(relativeOffset + diagLength);
-                    list.Add(new Diagnostic(diagnostic.Message, relativeSpan));
+                    list.Add(AdjustDiagnosticSpan(diagnostic, position));
                 }
                 position += trivia.FullWidth;
             }
@@ -139,36 +128,13 @@ internal sealed class GreenToken : GreenNode
         return list is null ? Array.Empty<Diagnostic>() : list.ToArray();
     }
 
-    private static bool ComputeTokenContainsDiagnostics(
-        IReadOnlyList<GreenTrivia>? leadingTrivia,
-        IReadOnlyList<GreenTrivia>? trailingTrivia,
-        IReadOnlyList<Diagnostic>? diagnostics)
+    private static Diagnostic AdjustDiagnosticSpan(Diagnostic diagnostic, int positionOffset)
     {
-        // Check if token has diagnostics
-        if (diagnostics is not null && diagnostics.Count > 0)
-            return true;
-
-        // Check leading trivia
-        if (leadingTrivia is not null)
-        {
-            foreach (var trivia in leadingTrivia)
-            {
-                if (trivia.Diagnostics.Count > 0)
-                    return true;
-            }
-        }
-
-        // Check trailing trivia
-        if (trailingTrivia is not null)
-        {
-            foreach (var trivia in trailingTrivia)
-            {
-                if (trivia.Diagnostics.Count > 0)
-                    return true;
-            }
-        }
-
-        return false;
+        var (diagOffset, diagLength) = diagnostic.Span.GetOffsetAndLength(int.MaxValue);
+        var relativeOffset = diagOffset + positionOffset;
+        if (relativeOffset < 0)
+            relativeOffset = 0;
+        var relativeSpan = relativeOffset..(relativeOffset + diagLength);
+        return new Diagnostic(diagnostic.Message, relativeSpan);
     }
 }
-
