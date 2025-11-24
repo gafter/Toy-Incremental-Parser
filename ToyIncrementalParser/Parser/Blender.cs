@@ -6,7 +6,7 @@ using static ToyIncrementalParser.Text.SpecialCharacters;
 
 namespace ToyIncrementalParser.Parser;
 
-internal sealed class Blender : ISymbolStream, ICharacterSource
+internal sealed class Blender : ISymbolStream
 {
     private readonly IText _newText;
     private readonly Stack<SymbolEntry> _symbolStack = new();
@@ -182,12 +182,6 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
     }
 
     internal int CurrentPositionCore => _currentPosition;
-
-    // ICharacterSource implementation delegates to the wrapper
-    char ICharacterSource.PeekCharacter() => _characterSource.PeekCharacter();
-    char ICharacterSource.ConsumeCharacter() => _characterSource.ConsumeCharacter();
-    void ICharacterSource.PushBack(char ch) => _characterSource.PushBack(ch);
-    int ICharacterSource.CurrentPosition => _characterSource.CurrentPosition;
 
     private void BuildInitialStack(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
@@ -693,7 +687,7 @@ internal sealed class Blender : ISymbolStream, ICharacterSource
     private SymbolToken LexNextToken()
     {
         // Reuse the lexer if we have one, otherwise create a new one
-        _lexer ??= new Lexer(this);
+        _lexer ??= new Lexer(_characterSource);
         // The lexer will advance _currentPosition as it consumes characters
         // After lexing, _currentPosition will be at lexed.FullEnd
         var lexed = _lexer.NextToken();
