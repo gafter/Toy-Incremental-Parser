@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using ToyIncrementalParser.Syntax;
 
 namespace ToyIncrementalParser.Interpreter;
@@ -20,7 +19,7 @@ public sealed class Interpreter
     {
         ArgumentNullException.ThrowIfNull(program);
 
-        var text = ReconstructText(program);
+        var text = program.FullText;
         return ExecuteInternal(program, text, output ?? TextWriter.Null);
     }
 
@@ -246,32 +245,6 @@ public sealed class Interpreter
         var parameters = definition.Parameters.Identifiers.Select(identifier => identifier.Text).ToArray();
         var function = new FunctionValue(definition.Identifier.Text, parameters, definition, environment);
         environment.Define(definition.Identifier.Text, ToyValue.FromFunction(function));
-    }
-
-    private static string ReconstructText(SyntaxNode node)
-    {
-        var builder = new StringBuilder();
-        AppendNodeText(node, builder);
-        return builder.ToString();
-    }
-
-    private static void AppendNodeText(SyntaxNode node, StringBuilder builder)
-    {
-        if (node is SyntaxToken token)
-        {
-            foreach (var trivia in token.LeadingTrivia)
-                builder.Append(trivia.Text);
-
-            builder.Append(token.Text);
-
-            foreach (var trivia in token.TrailingTrivia)
-                builder.Append(trivia.Text);
-
-            return;
-        }
-
-        foreach (var child in node.GetChildren())
-            AppendNodeText(child, builder);
     }
 
     private static double ExpectNumber(ToyValue value, SyntaxToken token, EvaluationContext context)
