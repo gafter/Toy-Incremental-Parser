@@ -1,6 +1,6 @@
 # Toy Incremental Parser
 
-This repository contains a toy recursive-descent parser and interpreter for the language sketched in [issue #1](https://github.com/gafter/Toy-Incremental-Parser/issues/1). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified. The interpreter executes programs with support for functions, variables, control flow, and runtime error handling.
+This repository contains a toy recursive-descent parser and interpreter for the language shown in [Language.md](Language.md). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified (see references). The interpreter executes programs with support for functions, variables, control flow, and runtime error handling.
 
 ## Project Layout
 
