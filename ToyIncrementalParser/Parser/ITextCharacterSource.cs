@@ -17,6 +17,8 @@ internal sealed class ITextCharacterSource : ICharacterSource
 
     public char PeekCharacter(int delta = 0)
     {
+        if (delta < 0)
+            throw new ArgumentOutOfRangeException(nameof(delta));
         var position = _position + delta;
         if (position >= _text.Length)
             return EndOfFile;
