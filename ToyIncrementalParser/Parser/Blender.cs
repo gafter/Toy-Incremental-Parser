@@ -158,25 +158,20 @@ internal sealed class Blender : ISymbolStream
     }
 
     // Core character access methods used by BlenderCharacterSource
-    internal char PeekCharacterCore()
+    internal char PeekCharacterCore(int delta = 0)
     {
-        EnsureCharacterAvailable();
-        if (_currentPosition >= _newText.Length)
-            return EndOfFile;
-        
-        if (_symbolStack.Count == 0)
-            return EndOfFile;
-
-        var top = _symbolStack.Peek();
-        if (!top.IsText)
-            throw new InvalidOperationException(
-                $"Current position {_currentPosition} is not at the start of a text segment.");
-        return _newText[_currentPosition];
+        if (delta < 0)
+            throw new ArgumentOutOfRangeException(nameof(delta), "delta must be non-negative.");
+        var position = _currentPosition + delta;
+        return _newText.Length > position ? _newText[position] : EndOfFile;
     }
 
     internal char ConsumeCharacterCore()
     {
-        var ch = PeekCharacterCore();
+        EnsureCharacterAvailable();
+        if (_currentPosition >= _newText.Length)
+            return EndOfFile;
+        var ch = _newText[_currentPosition];
         _currentPosition++;
         return ch;
     }
@@ -192,12 +187,13 @@ internal sealed class Blender : ISymbolStream
 
         var (deletedStart, deletedLength) = change.Span.GetOffsetAndLength(int.MaxValue);
         var deletedEnd = deletedStart + deletedLength;
+        var scanDeletedEnd = Math.Min(deletedEnd + Lexer.MaxLookahead, oldRoot.FullWidth);
         var delta = change.NewLength - deletedLength; // the amount the text has increased by
 
         // These are the bounds of the text segment in newText coordinates.
         // We discard tokens that overlap the change and extend the change span to include them.
         var newSpanStart = deletedStart;
-        var newSpanEnd = deletedEnd + delta;
+        var newSpanEnd = scanDeletedEnd + delta;
 
         var leftStack = new Stack<SymbolEntry>();
         var leftStackEndPosition = 0;
@@ -230,7 +226,7 @@ internal sealed class Blender : ISymbolStream
 
             var oldEnd = oldPosition + node.FullWidth;
             
-            if ((oldEnd+2) <= deletedStart)
+            if ((oldEnd + Lexer.MaxLookahead) <= deletedStart)
             {
                 // Preserve text to the left of the change on the left stack
                 Debug.Assert(leftStackEndPosition == oldPosition);
@@ -238,7 +234,7 @@ internal sealed class Blender : ISymbolStream
                 continue;
             }
 
-            if (oldPosition > deletedEnd)
+            if (oldPosition > scanDeletedEnd)
             {
                 // Preserve text to the right of the change
                 workStack.Push((node, oldPosition));
@@ -249,7 +245,6 @@ internal sealed class Blender : ISymbolStream
             if (node.IsToken)
             {
                 // Overlapping tokens will be rescanned, so we discard them.
-
                 // Check if it overlaps the start of the span. If it does, extend the span.
                 if (oldPosition < newSpanStart)
                 {
@@ -258,7 +253,7 @@ internal sealed class Blender : ISymbolStream
 
                 // Check if it overlaps the end of the span. If it does, extend the span.
                 // We need to extend if the token extends to or past deletedEnd
-                if (oldEnd >= deletedEnd)
+                if (oldEnd >= scanDeletedEnd)
                 {
                     var newEnd = oldEnd + delta;
                     if (newEnd > newSpanEnd)
@@ -780,46 +775,28 @@ internal sealed class Blender : ISymbolStream
     }
 
     /// <summary>
-    /// Wrapper around Blender's character access that handles pushback.
-    /// This isolates the pushback logic from the complex position tracking in the Blender.
+    /// Wrapper around Blender's character access.
     /// </summary>
     private sealed class BlenderCharacterSource : ICharacterSource
     {
         private readonly Blender _blender;
-        private char? _pushBack;
 
         public BlenderCharacterSource(Blender blender)
         {
             _blender = blender;
         }
 
-        public char PeekCharacter()
+        public char PeekCharacter(int delta = 0)
         {
-            if (_pushBack.HasValue)
-                return _pushBack.Value;
-            
-            return _blender.PeekCharacterCore();
+            return _blender.PeekCharacterCore(delta);
         }
 
         public char ConsumeCharacter()
         {
-            if (_pushBack.HasValue)
-            {
-                var pushedBack = _pushBack.Value;
-                _pushBack = null;
-                return pushedBack;
-            }
-            
             return _blender.ConsumeCharacterCore();
         }
 
-        public void PushBack(char ch)
-        {
-            if (_pushBack.HasValue)
-                throw new InvalidOperationException("Cannot push back more than one character.");
-            _pushBack = ch;
-        }
+        public int CurrentPosition => _blender.CurrentPositionCore;
 
-        public int CurrentPosition => _pushBack.HasValue ? _blender.CurrentPositionCore - 1 : _blender.CurrentPositionCore;
     }
 }

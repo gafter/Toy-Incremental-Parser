@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Parser;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
 using Xunit;
@@ -125,6 +126,65 @@ public sealed class IncrementalParsingTests
         TestStringWithRandomReplacement(random, originalText, $"InvalidProgram with seed={seed}, budget={budget}", validProgram: false);
     }
 
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(12345, 5)]
+    [InlineData(8675309, 5)]
+    [InlineData(int.MaxValue, 5)]
+    [InlineData(2, 5)]
+    [InlineData(17, 7)]
+    [InlineData(42, 8)]
+    [InlineData(1634, 8)]
+    public void WithChange_RandomSpanReplacement_PreservesFarTokens_ValidProgram(int seed, int budget)
+    {
+        var random = new Random(seed);
+        var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
+        TestTokenReuseHeuristic(random, originalText, $"ReuseValidProgram seed={seed}, budget={budget}");
+    }
+
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(12345, 5)]
+    [InlineData(8675309, 5)]
+    [InlineData(int.MaxValue, 5)]
+    [InlineData(2, 5)]
+    [InlineData(17, 7)]
+    [InlineData(42, 8)]
+    [InlineData(1634, 8)]
+    public void WithChange_RandomSpanReplacement_PreservesFarTokens_InvalidProgram(int seed, int budget)
+    {
+        var random = new Random(seed);
+        var originalText = GenerateErroneousProgram(random, budget);
+        TestTokenReuseHeuristic(random, originalText, $"ReuseInvalidProgram seed={seed}, budget={budget}");
+    }
+
+    [Fact]
+    public void WithChange_RandomSpanReplacement_PreservesFarTokens_FindFailingCase()
+    {
+        const int maxBudget = 10;
+        const int maxSeed = 2000;
+        for (var budget = 1; budget <= maxBudget; budget++)
+        {
+            for (var seed = 1; seed <= maxSeed; seed++)
+            {
+                var random = new Random(seed);
+                var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
+                var caseIdentifier = $"ReuseValidProgram seed={seed}, budget={budget}";
+                try
+                {
+                    TestTokenReuseHeuristic(random, originalText, caseIdentifier);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"[FailingCase] {caseIdentifier}");
+                    throw;
+                }
+            }
+        }
+    }
+
     private void TestStringWithRandomReplacement(Random random, Rope originalText, string caseIdentifier, bool validProgram = false)
     {
         // If validProgram is true, assert that the original program is indeed error-free
@@ -138,6 +198,56 @@ public sealed class IncrementalParsingTests
         var insertedSpan = RandomNonEmptySpan(random, originalText.Length);
         Rope replacementRope = originalText[insertedSpan];
         CheckParticularCase(originalText, deletedSpan, insertedSpan, replacementRope, caseIdentifier);
+    }
+
+    private void TestTokenReuseHeuristic(Random random, Rope originalText, string caseIdentifier)
+    {
+        var deletedSpan = RandomNonEmptySpan(random, originalText.Length);
+        var insertedSpan = RandomNonEmptySpan(random, originalText.Length);
+        Rope replacementRope = originalText[insertedSpan];
+        CheckParticularCase(originalText, deletedSpan, insertedSpan, replacementRope, caseIdentifier);
+        TestTokenReuseForChange(originalText, deletedSpan, replacementRope, caseIdentifier);
+    }
+
+    private void TestTokenReuseForChange(
+        Rope originalText,
+        Range deletedSpan,
+        Rope replacementRope,
+        string caseIdentifier)
+    {
+        var originalTree = SyntaxTree.Parse(originalText);
+        var (changeOffset, changeLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
+        var change = new TextChange(deletedSpan, replacementRope.Length);
+        var incrementalTree = originalTree.WithChange(change, replacementRope);
+        var caseContext = $"{caseIdentifier} (changeStart={changeOffset}, changeEnd={changeOffset + changeLength}, newChangeEnd={changeOffset + replacementRope.Length})";
+
+        var originalTokens = GetReusableTokens(originalTree);
+        var incrementalTokens = GetReusableTokens(incrementalTree);
+
+        var prefixLimit = changeOffset - Lexer.MaxLookahead;
+        AssertPrefixTokenReuse(
+            originalTokens,
+            incrementalTokens,
+            originalTree.Text.Length,
+            incrementalTree.Text.Length,
+            prefixLimit,
+            caseContext);
+
+        var newChangeEnd = changeOffset + replacementRope.Length;
+        var suffixStartLimit = newChangeEnd + Lexer.MaxLookahead + 1;
+        var originalSuffixStartLimit = changeOffset + changeLength + Lexer.MaxLookahead + 1;
+        var originalAllTokens = GetAllTokens(originalTree);
+        var incrementalAllTokens = GetAllTokens(incrementalTree);
+        var delta = replacementRope.Length - changeLength;
+        AssertTrailingTokenReuse(
+            originalAllTokens,
+            incrementalAllTokens,
+            originalTree.Text.Length,
+            incrementalTree.Text.Length,
+            suffixStartLimit,
+            originalSuffixStartLimit,
+            delta,
+            caseContext);
     }
 
     internal static Rope GenerateErroneousProgram(Random random, int budget)
@@ -459,5 +569,155 @@ public sealed class IncrementalParsingTests
         var maxLength = Math.Max(1, textLength - start);
         var length = random.Next(1, maxLength + 1);
         return start..(start + length);
+    }
+
+    private static List<SyntaxToken> GetReusableTokens(SyntaxTree tree)
+    {
+        var list = new List<SyntaxToken>();
+        CollectTokens(tree.Root, list);
+        return list;
+    }
+
+
+    private static void CollectTokens(SyntaxNode node, List<SyntaxToken> list)
+    {
+        if (node is SyntaxToken token)
+        {
+            if (token.Kind != NodeKind.EOFToken &&
+                !token.IsMissing &&
+                token.Green.FullWidth > 0 &&
+                !token.Green.ContainsDiagnostics)
+            {
+                list.Add(token);
+            }
+            return;
+        }
+
+        foreach (var child in node.GetChildren())
+            CollectTokens(child, list);
+    }
+
+    private static List<SyntaxToken> GetAllTokens(SyntaxTree tree)
+    {
+        var list = new List<SyntaxToken>();
+        CollectAllTokens(tree.Root, list);
+        return list;
+    }
+
+    private static void CollectAllTokens(SyntaxNode node, List<SyntaxToken> list)
+    {
+        if (node is SyntaxToken token)
+        {
+            if (token.Kind != NodeKind.EOFToken &&
+                !token.IsMissing &&
+                token.Green.FullWidth > 0)
+            {
+                list.Add(token);
+            }
+            return;
+        }
+
+        foreach (var child in node.GetChildren())
+            CollectAllTokens(child, list);
+    }
+
+    private static void AssertPrefixTokenReuse(
+        IReadOnlyList<SyntaxToken> originalTokens,
+        IReadOnlyList<SyntaxToken> incrementalTokens,
+        int originalTextLength,
+        int incrementalTextLength,
+        int endLimit,
+        string caseIdentifier)
+    {
+        var incrementalBySpan = new Dictionary<(int start, int end, NodeKind kind), SyntaxToken>();
+        foreach (var token in incrementalTokens)
+        {
+            var (start, length) = token.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var end = start + length;
+            incrementalBySpan[(start, end, token.Kind)] = token;
+        }
+
+        foreach (var token in originalTokens)
+        {
+            var (start, length) = token.FullSpan.GetOffsetAndLength(originalTextLength);
+            var end = start + length;
+            if (end > endLimit)
+                break;
+
+            var key = (start, end, token.Kind);
+            Assert.True(incrementalBySpan.TryGetValue(key, out var incremental),
+                $"Missing prefix token at {start}..{end} ({token.Kind}) in {caseIdentifier}");
+            Assert.True(token.Equals(incremental), $"Token mismatch at {start}..{end} in {caseIdentifier}");
+            Assert.True(ReferenceEquals(token.Green, incremental.Green),
+                $"Token not reused at {start}..{end} ({token.Kind}) in {caseIdentifier}. " +
+                $"Text='{token.Text}', FullText='{token.FullText}'.");
+        }
+    }
+
+    private static void AssertTrailingTokenReuse(
+        IReadOnlyList<SyntaxToken> originalAllTokens,
+        IReadOnlyList<SyntaxToken> incrementalAllTokens,
+        int originalTextLength,
+        int incrementalTextLength,
+        int incrementalStartLimit,
+        int originalStartLimit,
+        int delta,
+        string caseIdentifier)
+    {
+        var origIndex = originalAllTokens.Count - 1;
+        var incrIndex = incrementalAllTokens.Count - 1;
+
+        while (origIndex >= 0 && incrIndex >= 0)
+        {
+            var origToken = originalAllTokens[origIndex];
+            var incrToken = incrementalAllTokens[incrIndex];
+
+            var (origStart, origLength) = origToken.FullSpan.GetOffsetAndLength(originalTextLength);
+            var origEnd = origStart + origLength;
+            var (incrStart, incrLength) = incrToken.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var incrEnd = incrStart + incrLength;
+
+            var origShiftedStart = origStart + delta;
+            var origShiftedEnd = origEnd + delta;
+
+            if (origShiftedStart < incrementalStartLimit || origStart < originalStartLimit)
+                return;
+
+            if (origToken.Green.ContainsDiagnostics)
+            {
+                origIndex--;
+                continue;
+            }
+            if (incrToken.Green.ContainsDiagnostics)
+            {
+                incrIndex--;
+                continue;
+            }
+
+            if (origShiftedStart > incrStart)
+            {
+                origIndex--;
+                continue;
+            }
+            if (incrStart > origShiftedStart)
+            {
+                incrIndex--;
+                continue;
+            }
+
+            if (origShiftedEnd != incrEnd ||
+                origToken.Kind != incrToken.Kind ||
+                origToken.FullText != incrToken.FullText)
+            {
+                return;
+            }
+
+            Assert.True(ReferenceEquals(origToken.Green, incrToken.Green),
+                $"Token not reused in trailing tail for {caseIdentifier}. " +
+                $"OrigFull='{origToken.FullText}', IncrFull='{incrToken.FullText}'.");
+
+            origIndex--;
+            incrIndex--;
+        }
     }
 }

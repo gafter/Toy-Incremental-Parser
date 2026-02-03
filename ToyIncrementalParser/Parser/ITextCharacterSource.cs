@@ -7,7 +7,6 @@ internal sealed class ITextCharacterSource : ICharacterSource
 {
     private readonly IText _text;
     private int _position;
-    private char? _pushBack;
 
     public ITextCharacterSource(IText text)
     {
@@ -16,25 +15,18 @@ internal sealed class ITextCharacterSource : ICharacterSource
         _position = 0;
     }
 
-    public char PeekCharacter()
+    public char PeekCharacter(int delta = 0)
     {
-        if (_pushBack.HasValue)
-            return _pushBack.Value;
-        
-        if (_position >= _text.Length)
+        if (delta < 0)
+            throw new ArgumentOutOfRangeException(nameof(delta));
+        var position = _position + delta;
+        if (position >= _text.Length)
             return EndOfFile;
-        return _text[_position];
+        return _text[position];
     }
 
     public char ConsumeCharacter()
     {
-        if (_pushBack.HasValue)
-        {
-            var pushedBack = _pushBack.Value;
-            _pushBack = null;
-            return pushedBack;
-        }
-        
         if (_position >= _text.Length)
             return EndOfFile;
         
@@ -43,12 +35,5 @@ internal sealed class ITextCharacterSource : ICharacterSource
         return ch;
     }
 
-    public void PushBack(char ch)
-    {
-        if (_pushBack.HasValue)
-            throw new InvalidOperationException("Cannot push back more than one character.");
-        _pushBack = ch;
-    }
-
-    public int CurrentPosition => _pushBack.HasValue ? _position - 1 : _position;
+    public int CurrentPosition => _position;
 }

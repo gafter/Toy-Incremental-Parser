@@ -1,3 +1,4 @@
+using System;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
@@ -25,6 +26,7 @@ internal readonly struct LexedToken
 
 internal sealed class Lexer
 {
+    public static int MaxLookahead = 2;
     private static readonly Dictionary<string, NodeKind> s_keywords = new(StringComparer.Ordinal)
     {
         ["print"] = NodeKind.PrintToken,
@@ -49,6 +51,13 @@ internal sealed class Lexer
         _source = source;
     }
 
+    private char PeekCharacter(int delta = 0)
+    {
+        if (delta < 0 || delta >= MaxLookahead)
+            throw new ArgumentOutOfRangeException(nameof(delta), "delta must be between 0 and MaxLookahead - 1.");
+        return _source.PeekCharacter(delta);
+    }
+
     public LexedToken NextToken()
     {
         // Scan leading trivia for this token
@@ -58,7 +67,7 @@ internal sealed class Lexer
         var leading = ScanTrivia(isTrailing: false);
         var spanStart = _source.CurrentPosition;
 
-        var current = _source.PeekCharacter();
+        var current = PeekCharacter();
         if (current == EndOfFile)
         {
             var eofToken = new GreenToken(NodeKind.EOFToken, 0, leadingTrivia: leading);
@@ -89,7 +98,7 @@ internal sealed class Lexer
 
     private NodeKind ScanToken(IList<Diagnostic> diagnostics)
     {
-        var current = _source.PeekCharacter();
+        var current = PeekCharacter();
         if (current == EndOfFile)
         {
             return NodeKind.EOFToken;
@@ -147,7 +156,7 @@ internal sealed class Lexer
         var chars = new List<char>();
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (char.IsLetterOrDigit(ch) || ch == '_')
             {
                 _source.ConsumeCharacter();
@@ -174,7 +183,7 @@ internal sealed class Lexer
         // Scan zero or more digits
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile || !char.IsDigit(ch))
                 break;
 
@@ -183,7 +192,7 @@ internal sealed class Lexer
         }
 
         // Optionally take a dot followed by zero or more digits
-        var nextCh = _source.PeekCharacter();
+        var nextCh = PeekCharacter();
         if (nextCh == '.')
         {
             _source.ConsumeCharacter();
@@ -191,7 +200,7 @@ internal sealed class Lexer
             // Scan zero or more digits after the dot
             while (true)
             {
-                var afterDotCh = _source.PeekCharacter();
+                var afterDotCh = PeekCharacter();
                 if (afterDotCh == EndOfFile || !char.IsDigit(afterDotCh))
                     break;
 
@@ -223,7 +232,7 @@ internal sealed class Lexer
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -239,7 +248,7 @@ internal sealed class Lexer
                 var escapeStart = _source.CurrentPosition;
                 _source.ConsumeCharacter();
 
-                var next = _source.PeekCharacter();
+                var next = PeekCharacter();
                 if (next == EndOfFile)
                     break;
 
@@ -280,7 +289,7 @@ internal sealed class Lexer
         var trivia = new List<GreenTrivia>();
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -308,21 +317,15 @@ internal sealed class Lexer
 
             if (ch == '/')
             {
-                // Consume the first '/' and check if next is also '/'
-                _source.ConsumeCharacter();
-                var nextCh = _source.PeekCharacter();
+                var nextCh = PeekCharacter(1);
                 if (nextCh == '/')
                 {
                     // It's a comment - scan it
                     trivia.Add(ScanCommentTrivia());
                     continue;
                 }
-                else
-                {
-                    // It's division, not a comment - push it back so the token scanner can handle it
-                    _source.PushBack('/');
-                    break;
-                }
+                // It's division, not a comment - let the token scanner handle it
+                break;
             }
 
             break;
@@ -339,7 +342,7 @@ internal sealed class Lexer
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -377,16 +380,15 @@ internal sealed class Lexer
 
     private GreenTrivia ScanCommentTrivia()
     {
-        // The first '/' is already consumed by the caller
-
         var chars = new List<char>();
+        _source.ConsumeCharacter(); // first /
         chars.Add('/');
         _source.ConsumeCharacter(); // second /
         chars.Add('/');
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile || ch == '\n')
             {
                 break;
