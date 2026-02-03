@@ -2,11 +2,9 @@ namespace ToyIncrementalParser.Parser;
 
 internal interface ICharacterSource
 {
-    char PeekCharacter();
+    char PeekCharacter(int delta = 0);
 
     char ConsumeCharacter();
-
-    void PushBack(char ch);
 
     int CurrentPosition { get; }
 }

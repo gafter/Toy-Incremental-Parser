@@ -25,6 +25,8 @@ internal readonly struct LexedToken
 
 internal sealed class Lexer
 {
+    [ThreadStatic]
+    internal static string? CurrentPhase;
     private static readonly Dictionary<string, NodeKind> s_keywords = new(StringComparer.Ordinal)
     {
         ["print"] = NodeKind.PrintToken,
@@ -55,6 +57,7 @@ internal sealed class Lexer
         // Anything found here is leading trivia because if it were trailing trivia,
         // it would have been scanned and attached to the previous token
         var fullStart = _source.CurrentPosition;
+        CurrentPhase = "LeadingTrivia";
         var leading = ScanTrivia(isTrailing: false);
         var spanStart = _source.CurrentPosition;
 
@@ -66,6 +69,7 @@ internal sealed class Lexer
         }
 
         var diagnostics = new List<Diagnostic>();
+        CurrentPhase = "Token";
         var kind = ScanToken(diagnostics);
         var tokenEnd = _source.CurrentPosition;
         var tokenWidth = tokenEnd - spanStart; // Width of token content (excluding trivia)
@@ -81,9 +85,11 @@ internal sealed class Lexer
         }
 
         // Scan trailing trivia - stop when we hit a token (not included) or newline (included)
+        CurrentPhase = "TrailingTrivia";
         var trailing = ScanTrivia(isTrailing: true);
 
         var token = new GreenToken(kind, tokenWidth, leading, trailing, diagnostics: diagnostics);
+        CurrentPhase = null;
         return new LexedToken(token, fullStart, spanStart);
     }
 
@@ -308,21 +314,15 @@ internal sealed class Lexer
 
             if (ch == '/')
             {
-                // Consume the first '/' and check if next is also '/'
-                _source.ConsumeCharacter();
-                var nextCh = _source.PeekCharacter();
+                var nextCh = _source.PeekCharacter(1);
                 if (nextCh == '/')
                 {
                     // It's a comment - scan it
                     trivia.Add(ScanCommentTrivia());
                     continue;
                 }
-                else
-                {
-                    // It's division, not a comment - push it back so the token scanner can handle it
-                    _source.PushBack('/');
-                    break;
-                }
+                // It's division, not a comment - let the token scanner handle it
+                break;
             }
 
             break;
@@ -377,9 +377,8 @@ internal sealed class Lexer
 
     private GreenTrivia ScanCommentTrivia()
     {
-        // The first '/' is already consumed by the caller
-
         var chars = new List<char>();
+        _source.ConsumeCharacter(); // first /
         chars.Add('/');
         _source.ConsumeCharacter(); // second /
         chars.Add('/');
