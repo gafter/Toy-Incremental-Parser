@@ -1,3 +1,4 @@
+using System;
 using ToyIncrementalParser.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
@@ -25,8 +26,7 @@ internal readonly struct LexedToken
 
 internal sealed class Lexer
 {
-    [ThreadStatic]
-    internal static string? CurrentPhase;
+    public static int MaxLookahead = 2;
     private static readonly Dictionary<string, NodeKind> s_keywords = new(StringComparer.Ordinal)
     {
         ["print"] = NodeKind.PrintToken,
@@ -51,17 +51,23 @@ internal sealed class Lexer
         _source = source;
     }
 
+    private char PeekCharacter(int delta = 0)
+    {
+        if (delta < 0 || delta >= MaxLookahead)
+            throw new ArgumentOutOfRangeException(nameof(delta), "delta must be between 0 and MaxLookahead - 1.");
+        return _source.PeekCharacter(delta);
+    }
+
     public LexedToken NextToken()
     {
         // Scan leading trivia for this token
         // Anything found here is leading trivia because if it were trailing trivia,
         // it would have been scanned and attached to the previous token
         var fullStart = _source.CurrentPosition;
-        CurrentPhase = "LeadingTrivia";
         var leading = ScanTrivia(isTrailing: false);
         var spanStart = _source.CurrentPosition;
 
-        var current = _source.PeekCharacter();
+        var current = PeekCharacter();
         if (current == EndOfFile)
         {
             var eofToken = new GreenToken(NodeKind.EOFToken, 0, leadingTrivia: leading);
@@ -69,7 +75,6 @@ internal sealed class Lexer
         }
 
         var diagnostics = new List<Diagnostic>();
-        CurrentPhase = "Token";
         var kind = ScanToken(diagnostics);
         var tokenEnd = _source.CurrentPosition;
         var tokenWidth = tokenEnd - spanStart; // Width of token content (excluding trivia)
@@ -85,17 +90,15 @@ internal sealed class Lexer
         }
 
         // Scan trailing trivia - stop when we hit a token (not included) or newline (included)
-        CurrentPhase = "TrailingTrivia";
         var trailing = ScanTrivia(isTrailing: true);
 
         var token = new GreenToken(kind, tokenWidth, leading, trailing, diagnostics: diagnostics);
-        CurrentPhase = null;
         return new LexedToken(token, fullStart, spanStart);
     }
 
     private NodeKind ScanToken(IList<Diagnostic> diagnostics)
     {
-        var current = _source.PeekCharacter();
+        var current = PeekCharacter();
         if (current == EndOfFile)
         {
             return NodeKind.EOFToken;
@@ -153,7 +156,7 @@ internal sealed class Lexer
         var chars = new List<char>();
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (char.IsLetterOrDigit(ch) || ch == '_')
             {
                 _source.ConsumeCharacter();
@@ -180,7 +183,7 @@ internal sealed class Lexer
         // Scan zero or more digits
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile || !char.IsDigit(ch))
                 break;
 
@@ -189,7 +192,7 @@ internal sealed class Lexer
         }
 
         // Optionally take a dot followed by zero or more digits
-        var nextCh = _source.PeekCharacter();
+        var nextCh = PeekCharacter();
         if (nextCh == '.')
         {
             _source.ConsumeCharacter();
@@ -197,7 +200,7 @@ internal sealed class Lexer
             // Scan zero or more digits after the dot
             while (true)
             {
-                var afterDotCh = _source.PeekCharacter();
+                var afterDotCh = PeekCharacter();
                 if (afterDotCh == EndOfFile || !char.IsDigit(afterDotCh))
                     break;
 
@@ -229,7 +232,7 @@ internal sealed class Lexer
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -245,7 +248,7 @@ internal sealed class Lexer
                 var escapeStart = _source.CurrentPosition;
                 _source.ConsumeCharacter();
 
-                var next = _source.PeekCharacter();
+                var next = PeekCharacter();
                 if (next == EndOfFile)
                     break;
 
@@ -286,7 +289,7 @@ internal sealed class Lexer
         var trivia = new List<GreenTrivia>();
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -314,7 +317,7 @@ internal sealed class Lexer
 
             if (ch == '/')
             {
-                var nextCh = _source.PeekCharacter(1);
+                var nextCh = PeekCharacter(1);
                 if (nextCh == '/')
                 {
                     // It's a comment - scan it
@@ -339,7 +342,7 @@ internal sealed class Lexer
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile)
                 break;
 
@@ -385,7 +388,7 @@ internal sealed class Lexer
 
         while (true)
         {
-            var ch = _source.PeekCharacter();
+            var ch = PeekCharacter();
             if (ch == EndOfFile || ch == '\n')
             {
                 break;

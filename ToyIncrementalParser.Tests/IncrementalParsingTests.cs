@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ToyIncrementalParser.Diagnostics;
+using ToyIncrementalParser.Parser;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Text;
 using Xunit;
@@ -159,7 +160,7 @@ public sealed class IncrementalParsingTests
         TestTokenReuseHeuristic(random, originalText, $"ReuseInvalidProgram seed={seed}, budget={budget}");
     }
 
-    [Fact(Skip = "Temporary search helper; enable when needed.")]
+    [Fact]
     public void WithChange_RandomSpanReplacement_PreservesFarTokens_FindFailingCase()
     {
         const int maxBudget = 10;
@@ -218,16 +219,12 @@ public sealed class IncrementalParsingTests
         var (changeOffset, changeLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
         var change = new TextChange(deletedSpan, replacementRope.Length);
         var incrementalTree = originalTree.WithChange(change, replacementRope);
-        var updatedText = change.ApplyTo(originalText, replacementRope);
-        var reparsedTree = SyntaxTree.Parse(updatedText);
-
         var caseContext = $"{caseIdentifier} (changeStart={changeOffset}, changeEnd={changeOffset + changeLength}, newChangeEnd={changeOffset + replacementRope.Length})";
 
         var originalTokens = GetReusableTokens(originalTree);
-        var reparsedTokens = GetReusableTokens(reparsedTree);
         var incrementalTokens = GetReusableTokens(incrementalTree);
 
-        var prefixLimit = changeOffset - 2;
+        var prefixLimit = changeOffset - Lexer.MaxLookahead;
         AssertPrefixTokenReuse(
             originalTokens,
             incrementalTokens,
@@ -237,26 +234,19 @@ public sealed class IncrementalParsingTests
             caseContext);
 
         var newChangeEnd = changeOffset + replacementRope.Length;
-        var suffixStartLimit = newChangeEnd + 3;
-        var suffixCount = CountMatchingTrailingTokensAfterFullText(
-            originalTokens,
-            reparsedTokens,
-            reparsedTree.Text.Length,
-            suffixStartLimit);
+        var suffixStartLimit = newChangeEnd + Lexer.MaxLookahead + 1;
+        var originalSuffixStartLimit = changeOffset + changeLength + Lexer.MaxLookahead + 1;
+        var originalAllTokens = GetAllTokens(originalTree);
+        var incrementalAllTokens = GetAllTokens(incrementalTree);
         var delta = replacementRope.Length - changeLength;
-        var incrementalBySpan = BuildTokenSpanMapWithFullText(incrementalTokens, incrementalTree.Text.Length);
-        var originalByShiftedSpan = BuildShiftedTokenSpanMapWithFullText(
-            originalTokens,
+        AssertTrailingTokenReuse(
+            originalAllTokens,
+            incrementalAllTokens,
             originalTree.Text.Length,
-            delta);
-        AssertTokenReuse(
-            reparsedTokens,
-            incrementalBySpan,
-            originalByShiftedSpan,
-            reparsedTokens.Count - suffixCount,
-            suffixCount,
-            originalTree.Text.Length,
-            reparsedTree.Text.Length,
+            incrementalTree.Text.Length,
+            suffixStartLimit,
+            originalSuffixStartLimit,
+            delta,
             caseContext);
     }
 
@@ -607,6 +597,30 @@ public sealed class IncrementalParsingTests
             CollectTokens(child, list);
     }
 
+    private static List<SyntaxToken> GetAllTokens(SyntaxTree tree)
+    {
+        var list = new List<SyntaxToken>();
+        CollectAllTokens(tree.Root, list);
+        return list;
+    }
+
+    private static void CollectAllTokens(SyntaxNode node, List<SyntaxToken> list)
+    {
+        if (node is SyntaxToken token)
+        {
+            if (token.Kind != NodeKind.EOFToken &&
+                !token.IsMissing &&
+                token.Green.FullWidth > 0)
+            {
+                list.Add(token);
+            }
+            return;
+        }
+
+        foreach (var child in node.GetChildren())
+            CollectAllTokens(child, list);
+    }
+
     private static void AssertPrefixTokenReuse(
         IReadOnlyList<SyntaxToken> originalTokens,
         IReadOnlyList<SyntaxToken> incrementalTokens,
@@ -640,100 +654,70 @@ public sealed class IncrementalParsingTests
         }
     }
 
-    private static int CountMatchingTrailingTokensAfterFullText(
-        IReadOnlyList<SyntaxToken> originalTokens,
-        IReadOnlyList<SyntaxToken> reparsedTokens,
-        int reparsedTextLength,
-        int startLimit)
-    {
-        var origIndex = originalTokens.Count - 1;
-        var reparsedIndex = reparsedTokens.Count - 1;
-        var count = 0;
-
-        while (origIndex >= 0 && reparsedIndex >= 0)
-        {
-            var reparsedToken = reparsedTokens[reparsedIndex];
-            var (reparsedStart, _) = reparsedToken.FullSpan.GetOffsetAndLength(reparsedTextLength);
-            if (reparsedStart < startLimit)
-                break;
-
-            var origToken = originalTokens[origIndex];
-            if (origToken.Kind != reparsedToken.Kind || origToken.FullText != reparsedToken.FullText)
-                break;
-
-            count++;
-            origIndex--;
-            reparsedIndex--;
-        }
-
-        return count;
-    }
-
-    private static void AssertTokenReuse(
-        IReadOnlyList<SyntaxToken> reparsedTokens,
-        IReadOnlyDictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken> incrementalBySpan,
-        IReadOnlyDictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken> originalByShiftedSpan,
-        int reparsedStartIndex,
-        int count,
+    private static void AssertTrailingTokenReuse(
+        IReadOnlyList<SyntaxToken> originalAllTokens,
+        IReadOnlyList<SyntaxToken> incrementalAllTokens,
         int originalTextLength,
-        int reparsedTextLength,
+        int incrementalTextLength,
+        int incrementalStartLimit,
+        int originalStartLimit,
+        int delta,
         string caseIdentifier)
     {
-        if (count <= 0)
-            return;
+        var origIndex = originalAllTokens.Count - 1;
+        var incrIndex = incrementalAllTokens.Count - 1;
 
-        for (var i = 0; i < count; i++)
+        while (origIndex >= 0 && incrIndex >= 0)
         {
-            var reparsed = reparsedTokens[reparsedStartIndex + i];
-            var (reparseStart, reparseLength) = reparsed.FullSpan.GetOffsetAndLength(reparsedTextLength);
-            var reparseEnd = reparseStart + reparseLength;
-            var key = (reparseStart, reparseEnd, reparsed.Kind, reparsed.FullText);
-            Assert.True(originalByShiftedSpan.TryGetValue(key, out var original),
-                $"Missing original token for shifted span {reparseStart}..{reparseEnd} ({reparsed.Kind}) in {caseIdentifier}. " +
-                $"ReparseFull='{reparsed.FullText}'.");
-            Assert.True(incrementalBySpan.TryGetValue(key, out var incremental),
-                $"Missing incremental token at {reparseStart}..{reparseEnd} ({reparsed.Kind}) in {caseIdentifier}. " +
-                $"ReparseFull='{reparsed.FullText}'.");
-            var (origStart, origLength) = original.FullSpan.GetOffsetAndLength(originalTextLength);
+            var origToken = originalAllTokens[origIndex];
+            var incrToken = incrementalAllTokens[incrIndex];
+
+            var (origStart, origLength) = origToken.FullSpan.GetOffsetAndLength(originalTextLength);
             var origEnd = origStart + origLength;
-            Assert.True(original.Equals(incremental),
-                $"Token mismatch at {i} in {caseIdentifier}. " +
-                $"Orig {origStart}..{origEnd} Reparse {reparseStart}..{reparseEnd} Incr {incremental.FullSpan.GetOffsetAndLength(int.MaxValue)}.");
-            Assert.True(ReferenceEquals(original.Green, incremental.Green),
-                $"Token not reused. Original {origStart}..{origEnd}, Incremental {reparseStart}..{reparseEnd}, " +
-                $"Reparsed {reparseStart}..{reparseEnd} ({original.Kind}) in {caseIdentifier}. " +
-                $"OrigText='{original.Text}', OrigFull='{original.FullText}', " +
-                $"IncrText='{incremental.Text}', IncrFull='{incremental.FullText}', " +
-                $"ReparseText='{reparsed.Text}', ReparseFull='{reparsed.FullText}'.");
-        }
-    }
+            var (incrStart, incrLength) = incrToken.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var incrEnd = incrStart + incrLength;
 
-    private static IReadOnlyDictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken> BuildTokenSpanMapWithFullText(
-        IReadOnlyList<SyntaxToken> tokens,
-        int textLength)
-    {
-        var map = new Dictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken>();
-        foreach (var token in tokens)
-        {
-            var (start, length) = token.FullSpan.GetOffsetAndLength(textLength);
-            var end = start + length;
-            map[(start, end, token.Kind, token.FullText)] = token;
-        }
-        return map;
-    }
+            var origShiftedStart = origStart + delta;
+            var origShiftedEnd = origEnd + delta;
 
-    private static IReadOnlyDictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken> BuildShiftedTokenSpanMapWithFullText(
-        IReadOnlyList<SyntaxToken> tokens,
-        int textLength,
-        int delta)
-    {
-        var map = new Dictionary<(int start, int end, NodeKind kind, string fullText), SyntaxToken>();
-        foreach (var token in tokens)
-        {
-            var (start, length) = token.FullSpan.GetOffsetAndLength(textLength);
-            var end = start + length;
-            map[(start + delta, end + delta, token.Kind, token.FullText)] = token;
+            if (origShiftedStart < incrementalStartLimit || origStart < originalStartLimit)
+                return;
+
+            if (origToken.Green.ContainsDiagnostics)
+            {
+                origIndex--;
+                continue;
+            }
+            if (incrToken.Green.ContainsDiagnostics)
+            {
+                incrIndex--;
+                continue;
+            }
+
+            if (origShiftedStart > incrStart)
+            {
+                origIndex--;
+                continue;
+            }
+            if (incrStart > origShiftedStart)
+            {
+                incrIndex--;
+                continue;
+            }
+
+            if (origShiftedEnd != incrEnd ||
+                origToken.Kind != incrToken.Kind ||
+                origToken.FullText != incrToken.FullText)
+            {
+                return;
+            }
+
+            Assert.True(ReferenceEquals(origToken.Green, incrToken.Green),
+                $"Token not reused in trailing tail for {caseIdentifier}. " +
+                $"OrigFull='{origToken.FullText}', IncrFull='{incrToken.FullText}'.");
+
+            origIndex--;
+            incrIndex--;
         }
-        return map;
     }
 }

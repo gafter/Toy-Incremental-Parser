@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
@@ -18,7 +17,6 @@ internal sealed class Blender : ISymbolStream
     private int _currentPosition;
     private Lexer? _lexer;
     private SymbolToken? _pendingToken;
-    private bool _loggedDebugTokenStart;
 
     public Blender(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
@@ -189,7 +187,7 @@ internal sealed class Blender : ISymbolStream
 
         var (deletedStart, deletedLength) = change.Span.GetOffsetAndLength(int.MaxValue);
         var deletedEnd = deletedStart + deletedLength;
-        var scanDeletedEnd = Math.Min(deletedEnd + 2, oldRoot.FullWidth);
+        var scanDeletedEnd = Math.Min(deletedEnd + Lexer.MaxLookahead, oldRoot.FullWidth);
         var delta = change.NewLength - deletedLength; // the amount the text has increased by
 
         // These are the bounds of the text segment in newText coordinates.
@@ -228,7 +226,7 @@ internal sealed class Blender : ISymbolStream
 
             var oldEnd = oldPosition + node.FullWidth;
             
-            if ((oldEnd+2) <= deletedStart)
+            if ((oldEnd + Lexer.MaxLookahead) <= deletedStart)
             {
                 // Preserve text to the left of the change on the left stack
                 Debug.Assert(leftStackEndPosition == oldPosition);
