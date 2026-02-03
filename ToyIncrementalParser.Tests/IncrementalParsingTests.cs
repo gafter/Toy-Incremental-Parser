@@ -629,28 +629,43 @@ public sealed class IncrementalParsingTests
         int endLimit,
         string caseIdentifier)
     {
-        var incrementalBySpan = new Dictionary<(int start, int end, NodeKind kind), SyntaxToken>();
-        foreach (var token in incrementalTokens)
-        {
-            var (start, length) = token.FullSpan.GetOffsetAndLength(incrementalTextLength);
-            var end = start + length;
-            incrementalBySpan[(start, end, token.Kind)] = token;
-        }
+        var origIndex = 0;
+        var incrIndex = 0;
 
-        foreach (var token in originalTokens)
+        while (origIndex < originalTokens.Count && incrIndex < incrementalTokens.Count)
         {
-            var (start, length) = token.FullSpan.GetOffsetAndLength(originalTextLength);
-            var end = start + length;
-            if (end > endLimit)
-                break;
+            var origToken = originalTokens[origIndex];
+            var (origStart, origLength) = origToken.FullSpan.GetOffsetAndLength(originalTextLength);
+            var origEnd = origStart + origLength;
+            if (origEnd > endLimit)
+                return;
 
-            var key = (start, end, token.Kind);
-            Assert.True(incrementalBySpan.TryGetValue(key, out var incremental),
-                $"Missing prefix token at {start}..{end} ({token.Kind}) in {caseIdentifier}");
-            Assert.True(token.Equals(incremental), $"Token mismatch at {start}..{end} in {caseIdentifier}");
-            Assert.True(ReferenceEquals(token.Green, incremental.Green),
-                $"Token not reused at {start}..{end} ({token.Kind}) in {caseIdentifier}. " +
-                $"Text='{token.Text}', FullText='{token.FullText}'.");
+            var incrToken = incrementalTokens[incrIndex];
+            var (incrStart, incrLength) = incrToken.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var incrEnd = incrStart + incrLength;
+            if (incrEnd > endLimit)
+                return;
+
+            if (incrStart < origStart)
+            {
+                incrIndex++;
+                continue;
+            }
+            if (origStart < incrStart)
+            {
+                Assert.Fail(
+                    $"Missing prefix token at {origStart}..{origEnd} ({origToken.Kind}) in {caseIdentifier}");
+            }
+
+            Assert.True(origEnd == incrEnd && origToken.Kind == incrToken.Kind,
+                $"Token mismatch at {origStart}..{origEnd} in {caseIdentifier}");
+            Assert.True(origToken.Equals(incrToken), $"Token mismatch at {origStart}..{origEnd} in {caseIdentifier}");
+            Assert.True(ReferenceEquals(origToken.Green, incrToken.Green),
+                $"Token not reused at {origStart}..{origEnd} ({origToken.Kind}) in {caseIdentifier}. " +
+                $"Text='{origToken.Text}', FullText='{origToken.FullText}'.");
+
+            origIndex++;
+            incrIndex++;
         }
     }
 
