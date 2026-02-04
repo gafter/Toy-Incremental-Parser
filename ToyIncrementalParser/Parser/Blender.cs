@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Principal;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
@@ -13,10 +14,12 @@ internal sealed class Blender : ISymbolStream
     private readonly BlenderCharacterSource _characterSource;
 
     // _currentPosition is the position in the new text for the lexer, as represented by the symbol stack.
-    // It ignores _pendingToken.
+    // It ignores _peekedToken.
+    // It is synchronized with the top of the stack for non-text entries.
     private int _currentPosition;
     private Lexer? _lexer;
-    private SymbolToken? _pendingToken;
+    private SymbolToken? _peekedToken;
+    private bool _peekedTokenPopped;
 
     public Blender(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
@@ -34,47 +37,31 @@ internal sealed class Blender : ISymbolStream
 
     public SymbolToken PeekToken()
     {
-        if (_pendingToken == null)
-        {
-            EnsureToken();
-        }
-        
-        var token = _pendingToken!.Value;
-        return token;
+        if (_peekedToken != null && (_peekedTokenPopped || _peekedToken.Value.FullStart == _currentPosition))
+            return _peekedToken.Value;
+
+        _peekedToken = PeekTokenCore(out _peekedTokenPopped);
+        return _peekedToken.Value;
     }
 
     public SymbolToken ConsumeToken()
     {
-        if (_pendingToken == null)
+        if (_peekedTokenPopped)
         {
-            EnsureToken();
+            var result = _peekedToken!.Value;
+            _peekedToken = null;
+            _peekedTokenPopped = false;
+            return result;
         }
-        
-        var token = _pendingToken!.Value;
-        _pendingToken = null;
-        
+
+        var token = ConsumeTokenCore();
+        _peekedToken = null;
+        _peekedTokenPopped = false;
+
         // After consuming token, verify synchronization with next symbol (if any)
         AssertPositionSynchronized("ConsumeToken (after consuming)");
-        
+
         return token;
-    }
-
-    public void PushBackToken(SymbolToken token)
-    {
-        // If there's already a pending token, we can't push back
-        if (_pendingToken != null)
-        {
-            throw new InvalidOperationException("Cannot push back token: there is already a pending token.");
-        }
-
-        if (_currentPosition != token.FullEnd)
-        {
-            throw new InvalidOperationException(
-                $"Cannot push back token: current position {_currentPosition} is not at token end {token.FullEnd}.");
-        }
-        
-        // Just restore the token as the pending token - don't modify stack or position
-        _pendingToken = token;
     }
 
     public bool TryPeekNonTerminal(out NodeKind kind, out GreenNode node)
@@ -84,15 +71,23 @@ internal sealed class Blender : ISymbolStream
 
         while (true)
         {
-            // If there's a pending token, we can't peek a non-terminal
-            if (_pendingToken != null || _symbolStack.Count == 0)
+            if ((_peekedToken != null && _peekedTokenPopped) || _symbolStack.Count == 0)
             {
                 return false;
             }
 
             var top = _symbolStack.Peek();
 
-            if (top.IsText || top.Node is GreenToken)
+            if (top.IsText)
+            {
+                if (_currentPosition >= top.TextEnd)
+                {
+                    _symbolStack.Pop();
+                    continue;
+                }
+                return false;
+            }
+            if (top.Node is GreenToken)
             {
                 return false;
             }
@@ -101,8 +96,8 @@ internal sealed class Blender : ISymbolStream
             // If it isn't, that's a bug
             AssertPositionSynchronized("TryPeekNonTerminal");
 
-            // If the non-terminal contains diagnostics, crumble it and try again
-            if (top.Node.ContainsDiagnostics)
+            // If the non-terminal contains diagnostics or is a statement list, crumble it and try again
+            if (top.Node.ContainsDiagnostics || top.Node.Kind == NodeKind.StatementList)
             {
                 CrumbleTopSymbol();
                 continue;
@@ -118,10 +113,14 @@ internal sealed class Blender : ISymbolStream
     public bool TryTakeNonTerminal(NodeKind kind, out GreenNode node)
     {
         node = null!;
+        if (_peekedToken != null && _peekedTokenPopped)
+        {
+            return false;
+        }
 
         while (true)
         {
-            if (_pendingToken != null || _symbolStack.Count == 0)
+            if (_symbolStack.Count == 0)
             {
                 return false;
             }
@@ -133,6 +132,12 @@ internal sealed class Blender : ISymbolStream
             
             if (top.IsText)
             {
+                if (_currentPosition >= top.TextEnd)
+                {
+                    _symbolStack.Pop();
+                    continue;
+                }
+
                 return false;
             }
 
@@ -141,6 +146,8 @@ internal sealed class Blender : ISymbolStream
                 // _currentPosition should always be synchronized with the top of the stack
                 AssertPositionSynchronized("TryTakeNonTerminal (after crumbling)");
                 
+                _peekedToken = null;
+                _peekedTokenPopped = false;
                 var popped = PopSymbolAndAdvance();
                 node = popped.Node;
                 return true;
@@ -380,61 +387,22 @@ internal sealed class Blender : ISymbolStream
         return;
     }
 
-    private void EnsureToken()
+    private SymbolToken PeekTokenCore(out bool poppedFromInput)
     {
-        // If we already have a pending token, we're done
-        if (_pendingToken != null)
-        {
-            return;
-        }
-
         while (true)
         {
-            ProcessStackUntilToken();
-
-            // After ProcessStackUntilToken, the top should be either text or a synchronized token
             if (_symbolStack.Count == 0)
             {
-                // Stack is empty - lex the next token (which will be EOF if we're at the end)
-                var lexed = LexNextToken();
-                _pendingToken = lexed;
-                return;
+                poppedFromInput = true;
+                return LexNextToken();
             }
 
             var top = _symbolStack.Peek();
-            
-            // If we have a synchronized token on the stack, convert it to pending token
-            if (top.Node is GreenToken greenToken)
-            {
-                // Tokens with diagnostics should be crumbled to text segments for rescanning
-                if (greenToken.ContainsDiagnostics)
-                {
-                    CrumbleTopSymbol();
-                    continue;
-                }
-                
-                // _currentPosition should always be synchronized with the top of the stack
-                AssertPositionSynchronized("EnsureToken (token found)");
-                _pendingToken = new SymbolToken(greenToken, top.NewStart, top.NewStart + greenToken.LeadingWidth);
-                // Remove the token from the stack since it's now pending
-                _symbolStack.Pop();
-                // Advance position past the token (to keep _currentPosition reflecting stack position)
-                var tokenEnd = top.NewStart + greenToken.FullWidth;
-                _currentPosition = tokenEnd;
-                
-                // After advancing position, verify synchronization with next symbol (if any)
-                AssertPositionSynchronized("EnsureToken (after advancing position)");
-                
-                return;
-            }
-            
-            // If we have a text segment, lex from it
+
             if (top.IsText)
             {
-                // Check if we've already consumed all of this text segment
-                if (_currentPosition == top.TextEnd)
+                if (_currentPosition >= top.TextEnd)
                 {
-                    // Text segment is exhausted, remove it
                     _symbolStack.Pop();
                     continue;
                 }
@@ -445,102 +413,113 @@ internal sealed class Blender : ISymbolStream
                         $"Current position {_currentPosition} is not within text segment {top.TextStart}..{top.TextEnd}.");
                 }
 
-                // Save the text segment bounds before lexing (since lexing might modify the stack)
-                var textStart = top.TextStart;
-                var textEnd = top.TextEnd;
-                
-                try
-                {
-                    // Lex a token from the text segment
-                    // The lexer will use PeekCharacter/ConsumeCharacter which call EnsureCharacterAvailable,
-                    // which ensures we have text available from the stack
-                    var lexed = LexNextToken();
-                    _pendingToken = lexed;
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException($"Failed to lex token from text segment {textStart}..{textEnd} at position {_currentPosition}: {ex.Message}", ex);
-                }
-            }
-
-            // If we get here, top is a non-terminal - crumble it
-            CrumbleTopSymbol();
-        }
-    }
-
-    private void ProcessStackUntilToken()
-    {
-        while (_symbolStack.Count > 0)
-        {
-            var top = _symbolStack.Peek();
-            
-            // Check if _currentPosition is synchronized with the top of the stack
-            var expectedPosition = top.IsText ? top.TextStart : top.NewStart;
-            if (_currentPosition < expectedPosition)
-            {
-                // We're behind - this indicates a bug in position tracking
-                // _currentPosition should never be behind the top of the stack
-                var symbolDesc = top.IsText ? $"text segment {top.TextStart}..{top.TextEnd}" : $"{top.Node.Kind} at {top.NewStart}";
-                throw new InvalidOperationException(
-                    $"Position behind expected at start of ProcessStackUntilToken: current {_currentPosition}, expected {expectedPosition} for {symbolDesc}. " +
-                    $"This indicates a bug in position tracking - _currentPosition should never be behind the top of the stack.");
-            }
-            if (_currentPosition > expectedPosition)
-            {
-                // We're ahead - the top symbol is behind us, so we should crumble it
-                // This can happen if we've consumed characters but the stack still has old symbols
-                if (!top.IsText)
-                {
-                    CrumbleTopSymbol();
-                    continue;
-                }
-                else
-                {
-                    // For text segments, check if we're past the end
-                    if (_currentPosition >= top.TextEnd)
-                    {
-                        // We've consumed past the text segment - remove it
-                        _symbolStack.Pop();
-                        continue;
-                    }
-                    // Otherwise, we're still within the text segment, so we're done
-                    break;
-                }
-            }
-            if (top.IsText)
-            {
-                // When we stop at a text segment, _currentPosition should be synchronized with it
-                // If _currentPosition is before the text segment, so this indicates a bug
-                if (_currentPosition < top.TextStart)
-                {
-                    throw new InvalidOperationException(
-                        $"Current position {_currentPosition} is before text segment start {top.TextStart}. " +
-                        $"This indicates _currentPosition is not synchronized with the stack.");
-                }
-                break;
+                poppedFromInput = true;
+                return LexNextToken();
             }
 
             if (top.Node is GreenToken greenToken)
             {
-                // Tokens with diagnostics should be crumbled to text segments for rescanning
                 if (greenToken.ContainsDiagnostics)
                 {
                     CrumbleTopSymbol();
                     continue;
                 }
-                
-                // _currentPosition should always be synchronized with the top of the stack
-                AssertPositionSynchronized("ProcessStackUntilToken (token found)");
-                
-                // Token is synchronized, we can use it
+
+                AssertPositionSynchronized("PeekTokenCore (token found)");
+                var tokenStart = top.NewStart;
+                poppedFromInput = false;
+                return new SymbolToken(greenToken, tokenStart, tokenStart + greenToken.LeadingWidth);
+            }
+
+            if (top.Node.ContainsDiagnostics)
+            {
+                CrumbleTopSymbol();
+                continue;
+            }
+
+            // top of stack is a non-terminal, so we need to find its first token
+            AssertPositionSynchronized("PeekTokenCore (non-terminal)");
+            if (!TryGetFirstToken(top.Node, top.NewStart, out var firstToken, out var firstStart))
+                throw new InvalidOperationException($"Unable to find first token for {top.Node.Kind} at {top.NewStart}.");
+
+            poppedFromInput = false;
+            return new SymbolToken(firstToken, firstStart, firstStart + firstToken.LeadingWidth);
+        }
+    }
+
+    private SymbolToken ConsumeTokenCore()
+    {
+        while (true)
+        {
+            if (_symbolStack.Count == 0)
+                return LexNextToken();
+
+            var top = _symbolStack.Peek();
+            if (top.IsText)
+            {
+                if (_currentPosition >= top.TextEnd)
+                {
+                    _symbolStack.Pop();
+                    continue;
+                }
+
+                return LexNextToken();
+            }
+
+            if (top.Node is GreenToken greenToken)
+            {
+                if (greenToken.ContainsDiagnostics)
+                {
+                    CrumbleTopSymbol();
+                    continue;
+                }
+
+                AssertPositionSynchronized("ConsumePeekedToken");
+                var token = new SymbolToken(greenToken, top.NewStart, top.NewStart + greenToken.LeadingWidth);
+                _symbolStack.Pop();
+                _currentPosition = top.NewStart + greenToken.FullWidth;
+                AssertPositionSynchronized("ConsumePeekedToken (after advancing position)");
+                return token;
+            }
+
+            CrumbleTopSymbol();
+        }
+    }
+
+    private static bool TryGetFirstToken(GreenNode node, int nodeStart, out GreenToken token, out int tokenStart)
+    {
+        var current = node;
+        var currentStart = nodeStart;
+
+        while (true)
+        {
+            if (current is GreenToken greenToken)
+            {
+                token = greenToken;
+                tokenStart = currentStart;
+                return true;
+            }
+
+            var foundChild = false;
+            for (var i = 0; i < current.SlotCount; i++)
+            {
+                var child = current.GetSlot(i);
+                if (child is null)
+                    continue;
+                if (child.FullWidth == 0)
+                    continue;
+
+                current = child;
+                foundChild = true;
                 break;
             }
 
-            // Non-terminal: crumble it to get to its children/tokens
-            // Even if it's at _currentPosition, we need to crumble it to get a token for PeekToken()
-            Debug.Assert(top.Node is GreenNode);
-            CrumbleTopSymbol();
+            if (!foundChild)
+            {
+                token = null!;
+                tokenStart = 0;
+                return false;
+            }
         }
     }
 

@@ -160,6 +160,40 @@ public sealed class IncrementalParsingTests
         TestTokenReuseHeuristic(random, originalText, $"ReuseInvalidProgram seed={seed}, budget={budget}");
     }
 
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(12345, 5)]
+    [InlineData(8675309, 5)]
+    [InlineData(int.MaxValue, 5)]
+    [InlineData(2, 5)]
+    [InlineData(17, 7)]
+    [InlineData(42, 8)]
+    [InlineData(1634, 8)]
+    public void WithChange_RandomSpanReplacement_PreservesFarStatements_ValidProgram(int seed, int budget)
+    {
+        var random = new Random(seed);
+        var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
+        TestStatementReuseHeuristic(random, originalText, $"ReuseValidProgram seed={seed}, budget={budget}");
+    }
+
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(12345, 5)]
+    [InlineData(8675309, 5)]
+    [InlineData(int.MaxValue, 5)]
+    [InlineData(2, 5)]
+    [InlineData(17, 7)]
+    [InlineData(42, 8)]
+    [InlineData(1634, 8)]
+    public void WithChange_RandomSpanReplacement_PreservesFarStatements_InvalidProgram(int seed, int budget)
+    {
+        var random = new Random(seed);
+        var originalText = GenerateErroneousProgram(random, budget);
+        TestStatementReuseHeuristic(random, originalText, $"ReuseInvalidProgram seed={seed}, budget={budget}");
+    }
+
     [Fact]
     public void WithChange_RandomSpanReplacement_PreservesFarTokens_FindFailingCase()
     {
@@ -175,6 +209,52 @@ public sealed class IncrementalParsingTests
                 try
                 {
                     TestTokenReuseHeuristic(random, originalText, caseIdentifier);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"[FailingCase] {caseIdentifier}");
+                    throw;
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void WithChange_RandomSpanReplacement_PreservesFarStatements_FindFailingCase()
+    {
+        for (var budget = 30; budget <= 35; budget++)
+        {
+            for (var seed = 1; seed <= 200; seed++)
+            {
+                var random = new Random(seed);
+                var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
+                var caseIdentifier = $"ReuseValidProgram seed={seed}, budget={budget}";
+                try
+                {
+                    TestStatementReuseHeuristic(random, originalText, caseIdentifier);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"[FailingCase] {caseIdentifier}");
+                    throw;
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void WithChange_RandomSpanReplacement_PreservesFarStatements_FindFailingCase_InvalidProgram()
+    {
+        for (var budget = 30; budget <= 35; budget++)
+        {
+            for (var seed = 1; seed <= 200; seed++)
+            {
+                var random = new Random(seed);
+                var originalText = GenerateErroneousProgram(random, budget);
+                var caseIdentifier = $"ReuseInvalidProgram seed={seed}, budget={budget}";
+                try
+                {
+                    TestStatementReuseHeuristic(random, originalText, caseIdentifier);
                 }
                 catch (Exception)
                 {
@@ -207,6 +287,15 @@ public sealed class IncrementalParsingTests
         Rope replacementRope = originalText[insertedSpan];
         CheckParticularCase(originalText, deletedSpan, insertedSpan, replacementRope, caseIdentifier);
         TestTokenReuseForChange(originalText, deletedSpan, replacementRope, caseIdentifier);
+    }
+
+    private void TestStatementReuseHeuristic(Random random, Rope originalText, string caseIdentifier)
+    {
+        var deletedSpan = RandomNonEmptySpan(random, originalText.Length);
+        var insertedSpan = RandomNonEmptySpan(random, originalText.Length);
+        Rope replacementRope = originalText[insertedSpan];
+        CheckParticularCase(originalText, deletedSpan, insertedSpan, replacementRope, caseIdentifier);
+        TestStatementReuseForChange(originalText, deletedSpan, replacementRope, caseIdentifier);
     }
 
     private void TestTokenReuseForChange(
@@ -248,6 +337,52 @@ public sealed class IncrementalParsingTests
             originalSuffixStartLimit,
             delta,
             caseContext);
+    }
+
+    private void TestStatementReuseForChange(
+        Rope originalText,
+        Range deletedSpan,
+        Rope replacementRope,
+        string caseIdentifier)
+    {
+        var originalTree = SyntaxTree.Parse(originalText);
+        var (changeOffset, changeLength) = deletedSpan.GetOffsetAndLength(originalText.Length);
+        var change = new TextChange(deletedSpan, replacementRope.Length);
+        var incrementalTree = originalTree.WithChange(change, replacementRope);
+        var caseContext = $"{caseIdentifier} (changeStart={changeOffset}, changeEnd={changeOffset + changeLength}, newChangeEnd={changeOffset + replacementRope.Length})";
+
+        var prefixLimit = changeOffset - Lexer.MaxLookahead;
+        var originalPrefixStatements = GetReusableStatementsForPrefix(originalTree, originalTree.Text.Length);
+        var incrementalPrefixStatements = GetReusableStatementsForPrefix(incrementalTree, incrementalTree.Text.Length);
+        var prefixReusedCount = AssertPrefixStatementReuse(
+            originalPrefixStatements,
+            incrementalPrefixStatements,
+            originalTree.Text.Length,
+            incrementalTree.Text.Length,
+            prefixLimit,
+            caseContext);
+
+        var newChangeEnd = changeOffset + replacementRope.Length;
+        var suffixStartLimit = newChangeEnd + Lexer.MaxLookahead + 1;
+        var originalSuffixStartLimit = changeOffset + changeLength + Lexer.MaxLookahead + 1;
+        var originalChangeEnd = changeOffset + changeLength;
+        var originalSuffixStatements = GetReusableStatementsForSuffix(originalTree, originalTree.Text.Length);
+        var incrementalSuffixStatements = GetReusableStatementsForSuffix(incrementalTree, incrementalTree.Text.Length);
+        var delta = replacementRope.Length - changeLength;
+        var trailingReusedCount = AssertTrailingStatementReuse(
+            originalSuffixStatements,
+            incrementalSuffixStatements,
+            originalTree.Text.Length,
+            incrementalTree.Text.Length,
+            suffixStartLimit,
+            originalSuffixStartLimit,
+            delta,
+            changeOffset,
+            originalChangeEnd,
+            newChangeEnd,
+            caseContext);
+
+        // Console.WriteLine($"[StatementReuse] {caseContext} prefixReused={prefixReusedCount} trailingReused={trailingReusedCount}");
     }
 
     internal static Rope GenerateErroneousProgram(Random random, int budget)
@@ -621,6 +756,41 @@ public sealed class IncrementalParsingTests
             CollectAllTokens(child, list);
     }
 
+    private static List<StatementSyntax> GetReusableStatementsForPrefix(SyntaxTree tree, int textLength)
+    {
+        var statements = new List<StatementSyntax>();
+        CollectStatements(tree.Root, statements);
+        return statements
+            .Where(statement => !statement.Green.ContainsDiagnostics)
+            .OrderBy(statement => statement.FullSpan.End.Value)
+            .ThenByDescending(statement => statement.FullSpan.Start.Value)
+            .ToList();
+    }
+
+    private static List<StatementSyntax> GetReusableStatementsForSuffix(SyntaxTree tree, int textLength)
+    {
+        var statements = new List<StatementSyntax>();
+        CollectStatements(tree.Root, statements);
+        return statements
+            .Where(statement => !statement.Green.ContainsDiagnostics)
+            .OrderBy(statement => statement.FullSpan.Start.Value)
+            .ThenByDescending(statement => statement.FullSpan.End.Value)
+            .ToList();
+    }
+
+    private static void CollectStatements(SyntaxNode node, List<StatementSyntax> list)
+    {
+        if (node is StatementSyntax statement)
+            list.Add(statement);
+
+        foreach (var child in node.GetChildren())
+        {
+            if (child is not null)
+                CollectStatements(child, list);
+        }
+    }
+
+
     private static void AssertPrefixTokenReuse(
         IReadOnlyList<SyntaxToken> originalTokens,
         IReadOnlyList<SyntaxToken> incrementalTokens,
@@ -734,5 +904,147 @@ public sealed class IncrementalParsingTests
             origIndex--;
             incrIndex--;
         }
+    }
+
+    private static int AssertPrefixStatementReuse(
+        IReadOnlyList<StatementSyntax> originalStatements,
+        IReadOnlyList<StatementSyntax> incrementalStatements,
+        int originalTextLength,
+        int incrementalTextLength,
+        int endLimit,
+        string caseIdentifier)
+    {
+        var origIndex = 0;
+        var incrIndex = 0;
+        var reusedCount = 0;
+
+        while (origIndex < originalStatements.Count && incrIndex < incrementalStatements.Count)
+        {
+            var origStatement = originalStatements[origIndex];
+            var (origStart, origLength) = origStatement.FullSpan.GetOffsetAndLength(originalTextLength);
+            var origEnd = origStart + origLength;
+            if (origEnd > endLimit)
+                return reusedCount;
+
+            var incrStatement = incrementalStatements[incrIndex];
+            var (incrStart, incrLength) = incrStatement.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var incrEnd = incrStart + incrLength;
+            if (incrEnd > endLimit)
+                return reusedCount;
+
+            if (incrEnd < origEnd)
+            {
+                incrIndex++;
+                continue;
+            }
+            if (origEnd < incrEnd)
+            {
+                Assert.Fail(
+                    $"Missing prefix statement at {origStart}..{origEnd} ({origStatement.Kind}) in {caseIdentifier}");
+            }
+
+            if (incrStart > origStart)
+            {
+                incrIndex++;
+                continue;
+            }
+            if (origStart > incrStart)
+            {
+                Assert.Fail(
+                    $"Missing prefix statement at {origStart}..{origEnd} ({origStatement.Kind}) in {caseIdentifier}");
+            }
+
+            Assert.True(origStatement.Kind == incrStatement.Kind && origStatement.FullText == incrStatement.FullText,
+                $"Statement mismatch at {origStart}..{origEnd} in {caseIdentifier}");
+            Assert.True(ReferenceEquals(origStatement.Green, incrStatement.Green),
+                $"Statement not reused at {origStart}..{origEnd} ({origStatement.Kind}) in {caseIdentifier}. " +
+                $"FullText='{origStatement.FullText}'.");
+
+            reusedCount++;
+            origIndex++;
+            incrIndex++;
+        }
+
+        return reusedCount;
+    }
+
+    private static int AssertTrailingStatementReuse(
+        IReadOnlyList<StatementSyntax> originalStatements,
+        IReadOnlyList<StatementSyntax> incrementalStatements,
+        int originalTextLength,
+        int incrementalTextLength,
+        int incrementalStartLimit,
+        int originalStartLimit,
+        int delta,
+        int originalChangeStart,
+        int originalChangeEnd,
+        int incrementalChangeEnd,
+        string caseIdentifier)
+    {
+        var origIndex = 0;
+        var incrIndex = 0;
+        var reusedCount = 0;
+
+        while (origIndex < originalStatements.Count && incrIndex < incrementalStatements.Count)
+        {
+            var origStatement = originalStatements[origIndex];
+            var (origStart, origLength) = origStatement.FullSpan.GetOffsetAndLength(originalTextLength);
+            var origEnd = origStart + origLength;
+            if (origStart < originalStartLimit)
+            {
+                origIndex++;
+                continue;
+            }
+            if (origStart <= originalChangeStart && origEnd >= originalChangeEnd)
+            {
+                origIndex++;
+                continue;
+            }
+
+            var incrStatement = incrementalStatements[incrIndex];
+            var (incrStart, incrLength) = incrStatement.FullSpan.GetOffsetAndLength(incrementalTextLength);
+            var incrEnd = incrStart + incrLength;
+            if (incrStart < incrementalStartLimit)
+            {
+                incrIndex++;
+                continue;
+            }
+            if (incrStart <= originalChangeStart && incrEnd >= incrementalChangeEnd)
+            {
+                incrIndex++;
+                continue;
+            }
+
+            var origShiftedStart = origStart + delta;
+            var origShiftedEnd = origEnd + delta;
+
+            if (origShiftedStart < incrStart)
+            {
+                origIndex++;
+                continue;
+            }
+            if (incrStart < origShiftedStart)
+            {
+                incrIndex++;
+                continue;
+            }
+
+            if (origShiftedEnd != incrEnd ||
+                origStatement.Kind != incrStatement.Kind ||
+                origStatement.FullText != incrStatement.FullText)
+            {
+                return reusedCount;
+            }
+
+            Assert.True(ReferenceEquals(origStatement.Green, incrStatement.Green),
+                $"Statement not reused in trailing tail for {caseIdentifier}. " +
+                $"OrigFull='{origStatement.FullText}', IncrFull='{incrStatement.FullText}'.");
+
+            reusedCount++;
+            origIndex++;
+            incrIndex++;
+        }
+
+        return reusedCount;
     }
 }

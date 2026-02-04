@@ -38,13 +38,6 @@ internal sealed class LexingSymbolStream : ISymbolStream
         return token;
     }
 
-    public void PushBackToken(SymbolToken token)
-    {
-        if (_nextToken.HasValue)
-            throw new InvalidOperationException("Cannot push back more than one token.");
-        _nextToken = token;
-    }
-
     public bool TryPeekNonTerminal(out NodeKind kind, out GreenNode node)
     {
         kind = default;
