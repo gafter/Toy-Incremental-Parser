@@ -491,15 +491,10 @@ public sealed class Parser
                 or NodeKind.ConditionalStatement
                 or NodeKind.LoopStatement;
 
-            if (isStatement)
+            if (isStatement && _stream.TryTakeNonTerminal(kind, out var reused))
             {
-                // Take the non-terminal (it should match since we just peeked at it)
-                if (_stream.TryTakeNonTerminal(kind, out var reused))
-                {
-                    statement = reused;
-                    return true;
-                }
-                return false;
+                statement = reused;
+                return true;
             }
 
             _stream.Crumble();
