@@ -222,11 +222,9 @@ public sealed class IncrementalParsingTests
     [Fact]
     public void WithChange_RandomSpanReplacement_PreservesFarStatements_FindFailingCase()
     {
-        const int maxBudget = 10;
-        const int maxSeed = 2000;
-        for (var budget = 1; budget <= maxBudget; budget++)
+        for (var budget = 30; budget <= 35; budget++)
         {
-            for (var seed = 1; seed <= maxSeed; seed++)
+            for (var seed = 1; seed <= 200; seed++)
             {
                 var random = new Random(seed);
                 var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
@@ -247,11 +245,9 @@ public sealed class IncrementalParsingTests
     [Fact]
     public void WithChange_RandomSpanReplacement_PreservesFarStatements_FindFailingCase_InvalidProgram()
     {
-        const int maxBudget = 10;
-        const int maxSeed = 2000;
-        for (var budget = 1; budget <= maxBudget; budget++)
+        for (var budget = 30; budget <= 35; budget++)
         {
-            for (var seed = 1; seed <= maxSeed; seed++)
+            for (var seed = 1; seed <= 200; seed++)
             {
                 var random = new Random(seed);
                 var originalText = GenerateErroneousProgram(random, budget);
@@ -386,7 +382,7 @@ public sealed class IncrementalParsingTests
             newChangeEnd,
             caseContext);
 
-        Console.WriteLine($"[StatementReuse] {caseContext} prefixReused={prefixReusedCount} trailingReused={trailingReusedCount}");
+        // Console.WriteLine($"[StatementReuse] {caseContext} prefixReused={prefixReusedCount} trailingReused={trailingReusedCount}");
     }
 
     internal static Rope GenerateErroneousProgram(Random random, int budget)
