@@ -996,7 +996,10 @@ public sealed class IncrementalParsingTests
                 continue;
             }
             if (origStart <= originalChangeStart && origEnd >= originalChangeEnd)
-                return reusedCount;
+            {
+                origIndex++;
+                continue;
+            }
 
             var incrStatement = incrementalStatements[incrIndex];
             var (incrStart, incrLength) = incrStatement.FullSpan.GetOffsetAndLength(incrementalTextLength);
@@ -1007,7 +1010,10 @@ public sealed class IncrementalParsingTests
                 continue;
             }
             if (incrStart <= originalChangeStart && incrEnd >= incrementalChangeEnd)
-                return reusedCount;
+            {
+                incrIndex++;
+                continue;
+            }
 
             var origShiftedStart = origStart + delta;
             var origShiftedEnd = origEnd + delta;

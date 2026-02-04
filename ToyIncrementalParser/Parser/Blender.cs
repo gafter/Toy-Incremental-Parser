@@ -15,6 +15,7 @@ internal sealed class Blender : ISymbolStream
 
     // _currentPosition is the position in the new text for the lexer, as represented by the symbol stack.
     // It ignores _peekedToken.
+    // It is synchronized with the top of the stack for non-text entries.
     private int _currentPosition;
     private Lexer? _lexer;
     private SymbolToken? _peekedToken;
@@ -112,10 +113,14 @@ internal sealed class Blender : ISymbolStream
     public bool TryTakeNonTerminal(NodeKind kind, out GreenNode node)
     {
         node = null!;
+        if (_peekedToken != null && _peekedTokenPopped)
+        {
+            return false;
+        }
 
         while (true)
         {
-            if ((_peekedToken != null && _peekedTokenPopped) || _symbolStack.Count == 0)
+            if (_symbolStack.Count == 0)
             {
                 return false;
             }
@@ -132,6 +137,7 @@ internal sealed class Blender : ISymbolStream
                     _symbolStack.Pop();
                     continue;
                 }
+
                 return false;
             }
 
@@ -141,11 +147,7 @@ internal sealed class Blender : ISymbolStream
                 AssertPositionSynchronized("TryTakeNonTerminal (after crumbling)");
                 
                 _peekedToken = null;
-                if (_peekedToken != null && !_peekedTokenPopped)
-                {
-                    _peekedToken = null;
-                    _peekedTokenPopped = false;
-                }
+                _peekedTokenPopped = false;
                 var popped = PopSymbolAndAdvance();
                 node = popped.Node;
                 return true;
@@ -435,6 +437,8 @@ internal sealed class Blender : ISymbolStream
                 continue;
             }
 
+            // top of stack is a non-terminal, so we need to find its first token
+            AssertPositionSynchronized("PeekTokenCore (non-terminal)");
             if (!TryGetFirstToken(top.Node, top.NewStart, out var firstToken, out var firstStart))
                 throw new InvalidOperationException($"Unable to find first token for {top.Node.Kind} at {top.NewStart}.");
 
