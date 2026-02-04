@@ -219,6 +219,31 @@ public sealed class IncrementalParsingTests
         }
     }
 
+    [Fact]
+    public void WithChange_RandomSpanReplacement_PreservesFarStatements_FindFailingCase()
+    {
+        const int maxBudget = 10;
+        const int maxSeed = 2000;
+        for (var budget = 1; budget <= maxBudget; budget++)
+        {
+            for (var seed = 1; seed <= maxSeed; seed++)
+            {
+                var random = new Random(seed);
+                var originalText = RandomProgramGenerator.GenerateRandomProgram(random, budget);
+                var caseIdentifier = $"ReuseValidProgram seed={seed}, budget={budget}";
+                try
+                {
+                    TestStatementReuseHeuristic(random, originalText, caseIdentifier);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"[FailingCase] {caseIdentifier}");
+                    throw;
+                }
+            }
+        }
+    }
+
     private void TestStringWithRandomReplacement(Random random, Rope originalText, string caseIdentifier, bool validProgram = false)
     {
         // If validProgram is true, assert that the original program is indeed error-free
