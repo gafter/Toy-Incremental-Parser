@@ -7,6 +7,14 @@ using static ToyIncrementalParser.Text.SpecialCharacters;
 
 namespace ToyIncrementalParser.Parser;
 
+/// <summary>
+/// Incremental symbol stream that blends the old green tree with the new text.
+/// Maintains a stack of symbols (nonterminals, tokens, and text segments) ordered
+/// so that popping yields left-to-right traversal, while tracking the current
+/// position in the new text. The blender can either reuse a synchronized node
+/// from the old tree or lazily lex characters from text segments, crumbling
+/// nodes into children as needed.
+/// </summary>
 internal sealed class Blender : ISymbolStream
 {
     private readonly IText _newText;
@@ -21,6 +29,11 @@ internal sealed class Blender : ISymbolStream
     private SymbolToken? _peekedToken;
     private bool _peekedTokenPopped;
 
+    /// <summary>
+    /// Creates a blender over the new text by building an initial symbol stack
+    /// that reuses unchanged portions of the old tree and replaces the changed
+    /// region with a text segment to be lexed on demand.
+    /// </summary>
     public Blender(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
         _newText = newText;
@@ -35,6 +48,11 @@ internal sealed class Blender : ISymbolStream
         AssertPositionSynchronized("Blender constructor (after BuildInitialStack)");
     }
 
+    /// <summary>
+    /// Returns the next token without consuming it. If a token was previously
+    /// peeked and still synchronized with the current position, reuses it;
+    /// otherwise computes a fresh peek from the stack or by lexing.
+    /// </summary>
     public SymbolToken PeekToken()
     {
         if (_peekedToken != null && (_peekedTokenPopped || _peekedToken.Value.FullStart == _currentPosition))
@@ -44,6 +62,10 @@ internal sealed class Blender : ISymbolStream
         return _peekedToken.Value;
     }
 
+    /// <summary>
+    /// Consumes the next token, advancing the current position to the end of
+    /// the token and preserving stack synchronization.
+    /// </summary>
     public SymbolToken ConsumeToken()
     {
         if (_peekedTokenPopped)
@@ -64,6 +86,12 @@ internal sealed class Blender : ISymbolStream
         return token;
     }
 
+    /// <summary>
+    /// Attempts to peek a reusable nonterminal at the top of the stack without
+    /// consuming it. Only returns nonterminals that are synchronized and have
+    /// no diagnostics; nodes that contain diagnostics or statement lists are
+    /// crumbled to expose smaller reusable units.
+    /// </summary>
     public bool TryPeekNonTerminal(out NodeKind kind, out GreenNode node)
     {
         kind = default;
@@ -110,6 +138,11 @@ internal sealed class Blender : ISymbolStream
         }
     }
 
+    /// <summary>
+    /// Attempts to consume a specific nonterminal kind from the top of the stack.
+    /// Succeeds only when the stack is synchronized, the top nonterminal matches
+    /// the requested kind, and the node has no diagnostics.
+    /// </summary>
     public bool TryTakeNonTerminal(NodeKind kind, out GreenNode node)
     {
         node = null!;
@@ -165,6 +198,11 @@ internal sealed class Blender : ISymbolStream
     }
 
     // Core character access methods used by BlenderCharacterSource
+
+    /// <summary>
+    /// Peeks a character at the current position plus delta without advancing.
+    /// Characters are read from the new text buffer; if past EOF, returns EndOfFile.
+    /// </summary>
     internal char PeekCharacterCore(int delta = 0)
     {
         if (delta < 0)
@@ -173,6 +211,10 @@ internal sealed class Blender : ISymbolStream
         return _newText.Length > position ? _newText[position] : EndOfFile;
     }
 
+    /// <summary>
+    /// Consumes a character, ensuring that the symbol stack is prepared for
+    /// character-level access (e.g., tokens are converted to text segments).
+    /// </summary>
     internal char ConsumeCharacterCore()
     {
         EnsureCharacterAvailable();
@@ -183,8 +225,18 @@ internal sealed class Blender : ISymbolStream
         return ch;
     }
 
+    /// <summary>
+    /// Exposes the blender's current position in new text coordinates.
+    /// </summary>
     internal int CurrentPositionCore => _currentPosition;
 
+    /// <summary>
+    /// Builds the initial symbol stack by walking the old tree once and dividing
+    /// it into three regions: nodes entirely before the change (left stack),
+    /// nodes entirely after the change (work stack), and nodes overlapping the
+    /// change (crumbled or discarded). The changed span becomes a text segment
+    /// that will be lexed on demand.
+    /// </summary>
     private void BuildInitialStack(GreenProgramNode oldRoot, IText newText, TextChange change)
     {
         // We build the initial work stack by processing the old program from left to right using a work stack.
@@ -332,6 +384,11 @@ internal sealed class Blender : ISymbolStream
         Debug.Assert(newPosition == 0);
     }
 
+    /// <summary>
+    /// Ensures that the current position lies within a text segment at the top
+    /// of the stack, crumbling nodes or converting tokens to text segments as
+    /// necessary so that the lexer can read characters.
+    /// </summary>
     private void EnsureCharacterAvailable()
     {
         if (_currentPosition >= _newText.Length)
@@ -387,6 +444,11 @@ internal sealed class Blender : ISymbolStream
         return;
     }
 
+    /// <summary>
+    /// Finds the next token without consuming it. Returns tokens directly from
+    /// synchronized green nodes when possible; otherwise lexes from text segments.
+    /// The out parameter indicates whether the token was produced by lexing.
+    /// </summary>
     private SymbolToken PeekTokenCore(out bool poppedFromInput)
     {
         while (true)
@@ -439,14 +501,18 @@ internal sealed class Blender : ISymbolStream
 
             // top of stack is a non-terminal, so we need to find its first token
             AssertPositionSynchronized("PeekTokenCore (non-terminal)");
-            if (!TryGetFirstToken(top.Node, top.NewStart, out var firstToken, out var firstStart))
+            if (!TryGetFirstToken(top.Node, out var firstToken))
                 throw new InvalidOperationException($"Unable to find first token for {top.Node.Kind} at {top.NewStart}.");
 
             poppedFromInput = false;
-            return new SymbolToken(firstToken, firstStart, firstStart + firstToken.LeadingWidth);
+            return new SymbolToken(firstToken, top.NewStart, top.NewStart + firstToken.LeadingWidth);
         }
     }
 
+    /// <summary>
+    /// Consumes the next token, either by reusing a synchronized token from the
+    /// stack or by lexing from text. Advances the current position accordingly.
+    /// </summary>
     private SymbolToken ConsumeTokenCore()
     {
         while (true)
@@ -486,17 +552,20 @@ internal sealed class Blender : ISymbolStream
         }
     }
 
-    private static bool TryGetFirstToken(GreenNode node, int nodeStart, out GreenToken token, out int tokenStart)
+    /// <summary>
+    /// Walks the leftmost non-empty path of a nonterminal to find its first token.
+    /// The caller assumes this token starts at the node's start position because
+    /// widths are contiguous.
+    /// </summary>
+    private static bool TryGetFirstToken(GreenNode node, out GreenToken token)
     {
         var current = node;
-        var currentStart = nodeStart;
 
         while (true)
         {
             if (current is GreenToken greenToken)
             {
                 token = greenToken;
-                tokenStart = currentStart;
                 return true;
             }
 
@@ -517,18 +586,25 @@ internal sealed class Blender : ISymbolStream
             if (!foundChild)
             {
                 token = null!;
-                tokenStart = 0;
                 return false;
             }
         }
     }
 
+    /// <summary>
+    /// Pushes a green node onto the symbol stack at the specified new-text position.
+    /// </summary>
     private void EnqueueNode(GreenNode node, int newPosition)
     {
         _symbolStack.Push(new SymbolEntry(node, newPosition));
     }
 
 
+    /// <summary>
+    /// Pushes the children of a nonterminal onto the given work stack in reverse
+    /// order (right-to-left), computing their old-text positions so they pop
+    /// left-to-right. Children with empty spans are discarded.
+    /// </summary>
     private void CrumbleNode(GreenNode node, int oldPosition, Stack<(GreenNode node, int oldPosition)> stack)
     {
         // If the node has an empty span, discard it (e.g. missing tokens)
@@ -585,6 +661,11 @@ internal sealed class Blender : ISymbolStream
         }
     }
 
+    /// <summary>
+    /// Removes the top nonterminal from the symbol stack and replaces it with
+    /// its children (right-to-left). Tokens with diagnostics are converted to
+    /// text segments to force rescanning; empty-span nodes are discarded.
+    /// </summary>
     private void CrumbleTopSymbol()
     {
         if (_symbolStack.Count == 0)
@@ -658,6 +739,10 @@ internal sealed class Blender : ISymbolStream
     }
 
 
+    /// <summary>
+    /// Lazily lexes the next token from the current text segment using the shared
+    /// lexer, which advances the current position as it consumes characters.
+    /// </summary>
     private SymbolToken LexNextToken()
     {
         // Reuse the lexer if we have one, otherwise create a new one
@@ -670,7 +755,7 @@ internal sealed class Blender : ISymbolStream
     }
 
     /// <summary>
-    /// Asserts that _currentPosition is synchronized with the given symbol entry.
+    /// Asserts that _currentPosition is synchronized with the symbol stack's first entry.
     /// For text segments, checks that _currentPosition is contained within the segment bounds.
     /// For nodes/tokens, checks that _currentPosition matches the entry's start position.
     /// </summary>
@@ -726,6 +811,10 @@ internal sealed class Blender : ISymbolStream
         return top;
     }
 
+    /// <summary>
+    /// Represents an entry on the symbol stack: either a green node at a specific
+    /// new-text position or a text segment to be lexed.
+    /// </summary>
     private readonly struct SymbolEntry
     {
         public SymbolEntry(GreenNode node, int newStart)
@@ -754,7 +843,7 @@ internal sealed class Blender : ISymbolStream
     }
 
     /// <summary>
-    /// Wrapper around Blender's character access.
+    /// Wrapper that exposes blender character access to the lexer.
     /// </summary>
     private sealed class BlenderCharacterSource : ICharacterSource
     {
