@@ -319,18 +319,7 @@ public sealed class IncrementalParsingTests
         var newChangeEnd = changeOffset + replacementRope.Length;
         var suffixStartLimit = newChangeEnd + Lexer.MaxLookahead + 1;
         var originalSuffixStartLimit = changeOffset + changeLength + Lexer.MaxLookahead + 1;
-        var originalContaining = FindSmallestContainingStatement(originalTree, originalTree.Text.Length, changeOffset, changeOffset + changeLength);
-        var incrementalContaining = FindSmallestContainingStatement(incrementalTree, incrementalTree.Text.Length, changeOffset, newChangeEnd);
-        if (originalContaining is not null)
-        {
-            var (start, length) = originalContaining.FullSpan.GetOffsetAndLength(originalTree.Text.Length);
-            originalSuffixStartLimit = Math.Max(originalSuffixStartLimit, start + length);
-        }
-        if (incrementalContaining is not null)
-        {
-            var (start, length) = incrementalContaining.FullSpan.GetOffsetAndLength(incrementalTree.Text.Length);
-            suffixStartLimit = Math.Max(suffixStartLimit, start + length);
-        }
+        var originalChangeEnd = changeOffset + changeLength;
         var originalSuffixStatements = GetReusableStatementsForSuffix(originalTree, originalTree.Text.Length);
         var incrementalSuffixStatements = GetReusableStatementsForSuffix(incrementalTree, incrementalTree.Text.Length);
         var delta = replacementRope.Length - changeLength;
@@ -342,6 +331,9 @@ public sealed class IncrementalParsingTests
             suffixStartLimit,
             originalSuffixStartLimit,
             delta,
+            changeOffset,
+            originalChangeEnd,
+            newChangeEnd,
             caseContext);
     }
 
@@ -750,34 +742,6 @@ public sealed class IncrementalParsingTests
         }
     }
 
-    private static StatementSyntax? FindSmallestContainingStatement(
-        SyntaxTree tree,
-        int textLength,
-        int start,
-        int end)
-    {
-        var statements = new List<StatementSyntax>();
-        CollectStatements(tree.Root, statements);
-
-        StatementSyntax? best = null;
-        var bestLength = int.MaxValue;
-        foreach (var statement in statements)
-        {
-            var (spanStart, spanLength) = statement.FullSpan.GetOffsetAndLength(textLength);
-            var spanEnd = spanStart + spanLength;
-            if (spanStart <= start && spanEnd >= end)
-            {
-                if (spanLength < bestLength)
-                {
-                    best = statement;
-                    bestLength = spanLength;
-                }
-            }
-        }
-
-        return best;
-    }
-
 
     private static void AssertPrefixTokenReuse(
         IReadOnlyList<SyntaxToken> originalTokens,
@@ -960,6 +924,9 @@ public sealed class IncrementalParsingTests
         int incrementalStartLimit,
         int originalStartLimit,
         int delta,
+        int originalChangeStart,
+        int originalChangeEnd,
+        int incrementalChangeEnd,
         string caseIdentifier)
     {
         var origIndex = 0;
@@ -975,6 +942,8 @@ public sealed class IncrementalParsingTests
                 origIndex++;
                 continue;
             }
+            if (origStart <= originalChangeStart && origEnd >= originalChangeEnd)
+                return;
 
             var incrStatement = incrementalStatements[incrIndex];
             var (incrStart, incrLength) = incrStatement.FullSpan.GetOffsetAndLength(incrementalTextLength);
@@ -984,6 +953,8 @@ public sealed class IncrementalParsingTests
                 incrIndex++;
                 continue;
             }
+            if (incrStart <= originalChangeStart && incrEnd >= incrementalChangeEnd)
+                return;
 
             var origShiftedStart = origStart + delta;
             var origShiftedEnd = origEnd + delta;
