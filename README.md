@@ -182,7 +182,7 @@ The result is a stack where symbols appear in left-to-right order when popped, w
 
 ### The Parser's Reuse API
 
-The Parser uses two methods from `ISymbolStream` to request nonterminals for reuse:
+The Parser uses three methods from `ISymbolStream` to request nonterminals for reuse:
 
 1. **`TryPeekNonTerminal(out NodeKind kind, out GreenNode node)`**: Peeks at the top nonterminal on the stack without consuming it. This allows the parser to check what's available before deciding whether to reuse it.
 
@@ -192,6 +192,8 @@ The Parser uses two methods from `ISymbolStream` to request nonterminals for reu
    - The position is synchronized (the top nonterminal starts at `_currentPosition`)
    - The nonterminal's kind matches the requested kind
    - The nonterminal has no diagnostics (nodes with diagnostics are always rescanned)
+
+3. **`Crumble()`**: Crumbles the top nonterminal into its immediate children, which become available for reuse or lexing. This is only valid when the next symbol is a nonterminal (callers use `TryPeekNonTerminal` to check).
 
 The parser calls `TryReuseStatement` at the start of `ParseStatement` and in the loop in `ParseStatementList`, before checking what token comes next. This ensures that if a statement is available for reuse, it's taken before the parser would otherwise start parsing tokens, avoiding unnecessary crumbling.
 

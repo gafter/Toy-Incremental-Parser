@@ -89,8 +89,8 @@ internal sealed class Blender : ISymbolStream
     /// <summary>
     /// Attempts to peek a reusable nonterminal at the top of the stack without
     /// consuming it. Only returns nonterminals that are synchronized and have
-    /// no diagnostics; nodes that contain diagnostics or statement lists are
-    /// crumbled to expose smaller reusable units.
+    /// no diagnostics; nodes that contain diagnostics are crumbled to expose
+    /// smaller reusable units.
     /// </summary>
     public bool TryPeekNonTerminal(out NodeKind kind, out GreenNode node)
     {
@@ -124,8 +124,8 @@ internal sealed class Blender : ISymbolStream
             // If it isn't, that's a bug
             AssertPositionSynchronized("TryPeekNonTerminal");
 
-            // If the non-terminal contains diagnostics or is a statement list, crumble it and try again
-            if (top.Node.ContainsDiagnostics || top.Node.Kind == NodeKind.StatementList)
+            // If the non-terminal contains diagnostics, crumble it and try again
+            if (top.Node.ContainsDiagnostics)
             {
                 CrumbleTopSymbol();
                 continue;
@@ -195,6 +195,28 @@ internal sealed class Blender : ISymbolStream
             AssertPositionSynchronized("TryTakeNonTerminal (before crumbling)");
             CrumbleTopSymbol();
         }
+    }
+
+    public void Crumble()
+    {
+        if (_peekedToken != null && _peekedTokenPopped)
+        {
+            throw new InvalidOperationException("Cannot crumble while a peeked token is pending.");
+        }
+
+        if (_symbolStack.Count == 0)
+        {
+            throw new InvalidOperationException("Cannot crumble an empty symbol stack.");
+        }
+
+        var top = _symbolStack.Peek();
+        if (top.IsText || top.Node is GreenToken)
+        {
+            throw new InvalidOperationException("Crumble is only valid when the next symbol is a nonterminal.");
+        }
+
+        AssertPositionSynchronized("Crumble");
+        CrumbleTopSymbol();
     }
 
     // Core character access methods used by BlenderCharacterSource
