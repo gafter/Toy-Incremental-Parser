@@ -36,8 +36,15 @@ public sealed class Parser
         var statements = new List<GreenNode>();
         while (true)
         {
-            // Try to reuse a statement, before checking IsAtEnd() or PeekToken.Kind
-            // This avoids crumbling non-terminals when PeekToken() is called
+            if (_stream.TryPeekNonTerminal(out var kind, out _) &&
+                kind == NodeKind.StatementList &&
+                _stream.TryTakeNonTerminal(kind, out var listNode))
+            {
+                var statementList = (GreenStatementListNode)listNode;
+                statements.AddRange(statementList.Statements);
+                continue;
+            }
+
             if (TryReuseStatement(out var reused))
             {
                 statements.Add(reused);
@@ -54,6 +61,7 @@ public sealed class Parser
             var statement = ParseStatement();
             statements.Add(statement);
 
+            // If we're not making progress, break out of the loop
             if (ReferenceEquals(statementStart, PeekToken))
                 break;
         }
@@ -473,20 +481,15 @@ public sealed class Parser
     {
         statement = null!;
 
-        // Peek at the top non-terminal to see if it's a statement we can reuse
-        if (_stream.TryPeekNonTerminal(out var kind, out var node))
+        while (_stream.TryPeekNonTerminal(out var kind, out _))
         {
             // Check if it's one of the statement types we can reuse
-            var isStatement = kind switch
-            {
-                NodeKind.PrintStatement => true,
-                NodeKind.ReturnStatement => true,
-                NodeKind.FunctionDefinition => true,
-                NodeKind.AssignmentStatement => true,
-                NodeKind.ConditionalStatement => true,
-                NodeKind.LoopStatement => true,
-                _ => false
-            };
+            var isStatement = kind is NodeKind.PrintStatement
+                or NodeKind.ReturnStatement
+                or NodeKind.FunctionDefinition
+                or NodeKind.AssignmentStatement
+                or NodeKind.ConditionalStatement
+                or NodeKind.LoopStatement;
 
             if (isStatement)
             {
@@ -496,7 +499,10 @@ public sealed class Parser
                     statement = reused;
                     return true;
                 }
+                return false;
             }
+
+            _stream.Crumble();
         }
 
         return false;

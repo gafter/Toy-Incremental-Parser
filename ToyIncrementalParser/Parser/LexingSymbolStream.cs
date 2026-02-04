@@ -1,3 +1,4 @@
+using System;
 using ToyIncrementalParser.Syntax;
 using ToyIncrementalParser.Syntax.Green;
 using ToyIncrementalParser.Text;
@@ -49,5 +50,10 @@ internal sealed class LexingSymbolStream : ISymbolStream
     {
         node = null!;
         return false;
+    }
+
+    public void Crumble()
+    {
+        throw new InvalidOperationException("LexingSymbolStream does not support crumbling.");
     }
 }
