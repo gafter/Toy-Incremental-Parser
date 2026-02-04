@@ -9,8 +9,6 @@ internal interface ISymbolStream
 
     SymbolToken ConsumeToken();
 
-    void PushBackToken(SymbolToken token);
-
     bool TryPeekNonTerminal(out NodeKind kind, out GreenNode node);
 
     bool TryTakeNonTerminal(NodeKind kind, out GreenNode node);
