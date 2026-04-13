@@ -1,6 +1,6 @@
 # Toy Incremental Parser
 
-This repository contains a toy recursive-descent parser and interpreter for the language shown in [Language.md](Language.md). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified (see references). The interpreter executes programs with support for functions, variables, control flow, and runtime error handling.
+This repository contains a toy recursive-descent parser and interpreter for the language shown in [Language.md](Language.md). The parser implements incremental parsing using green/red tree separation and a "blender" that efficiently reuses unchanged portions of the syntax tree when the source text is modified (see references). The stack-based incremental reuse strategy is based on Chapter 2 of Neal Gafter's dissertation, [*Parallel Incremental Compilation*](https://hdl.handle.net/1802/5155). The interpreter executes programs with support for functions, variables, control flow, and runtime error handling.
 
 ## Project Layout
 
@@ -129,7 +129,7 @@ The `Lexer` reads characters from an `ICharacterSource` (the blender) rather tha
 
 ## Incremental Parsing Strategy
 
-The incremental parsing strategy is the core innovation that enables efficient reparsing when source code is edited. This section provides a detailed explanation of how the Blender and Parser work together to reuse unchanged portions of the syntax tree.
+The incremental parsing strategy is a core innovation that enables efficient reparsing when source code is edited. It is based on **Chapter 2** of Neal M. Gafter, [*Parallel Incremental Compilation*](https://hdl.handle.net/1802/5155) (Ph.D. thesis, University of Rochester, Department of Computer Science, 1990; UR CSD technical report TR349). This section explains how the Blender and Parser work together to reuse unchanged portions of the syntax tree in this project.
 
 ### Overview
 
@@ -276,6 +276,8 @@ The current implementation focuses on statement-level reuse (statements and stat
 The blender's initial queue building algorithm achieves O(changed symbols) complexity by iteratively walking the old tree and change plan, avoiding expensive diffing operations.
 
 ## References
+
+- Neal M. Gafter. [*Parallel Incremental Compilation*](https://hdl.handle.net/1802/5155). Ph.D. thesis, University of Rochester, Department of Computer Science, 1990. UR CSD technical report TR349. Chapter 2 describes the incremental parsing approach (subtree reuse) that informs the blender and symbol-stack strategy in this repository.
 
 - [US Patent 10,564,944: Efficient immutable syntax representation with incremental change](https://patents.google.com/patent/US10564944) - The foundational patent describing the green/red tree separation and incremental parsing techniques that enable efficient structural sharing and reuse of unchanged syntax tree portions.
 
